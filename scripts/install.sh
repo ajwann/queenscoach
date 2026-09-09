@@ -298,8 +298,25 @@ ACCOUNT_ID="$(cf GET "/accounts?per_page=50" | cf_result "listing accounts" \
   | pyget 'd[0]["id"] if d else sys.exit("this token sees no accounts; add Account -> Cloudflare Tunnel -> Edit")')"
 info "account $ACCOUNT_ID"
 
+# An empty result here means the token authenticated but sees no such zone,
+# which is a different problem from the token being rejected. Report which
+# zones it can see, since that separates a missing permission (none) from a
+# mis-scoped one (some, but not this).
 ZONE_ID="$(cf GET "/zones?name=$ZONE" | cf_result "looking up the zone $ZONE" \
-  | pyget "d[0][\"id\"] if d else sys.exit(\"no zone named $ZONE for this token; add Zone -> Zone -> Read\")")"
+  | pyget 'd[0]["id"] if d else ""')"
+if [[ -z $ZONE_ID ]]; then
+  VISIBLE="$(cf GET "/zones?per_page=50" | cf_result "listing zones" \
+    | pyget '", ".join(zone["name"] for zone in d) if d else "(none)"')"
+  die "this Cloudflare API token cannot see a zone named $ZONE.
+    Zones it can see: $VISIBLE
+
+    If that says (none), the token is missing Zone -> Zone -> Read.
+    If it lists other zones, the token's Zone Resources do not include $ZONE.
+
+    Edit the token at https://dash.cloudflare.com/profile/api-tokens and make
+    sure it has all three permissions, and that Zone Resources is
+    'Include -> Specific zone -> $ZONE' (or 'All zones')."
+fi
 info "zone $ZONE_ID"
 
 TUNNEL_ID="$(cf GET "/accounts/$ACCOUNT_ID/cfd_tunnel?name=$TUNNEL_NAME&is_deleted=false" \

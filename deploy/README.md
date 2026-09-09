@@ -114,6 +114,20 @@ URI it expects at every startup.
 | Zone → DNS → Edit | The `CNAME` pointing at it |
 | Zone → Zone → Read | Find the zone id |
 
+Set **Zone Resources** to `Include → Specific zone → your domain` (or *All
+zones*). Getting the permissions right but leaving Zone Resources unset is the
+usual reason the install stops at `cannot see a zone named ...` — the token
+authenticates fine, it just has access to nothing.
+
+To check a token before or after a failed run:
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  https://api.cloudflare.com/client/v4/zones | python3 -m json.tool
+```
+
+An empty `result` means the token sees no zones at all.
+
 The token is used only during the install and is **never written to disk** — the
 tunnel authenticates with its own credentials afterwards. You can delete the
 token once the install succeeds.
