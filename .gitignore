@@ -1,3 +1,10 @@
-node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+build/
 dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.log
