@@ -3,13 +3,20 @@
 `scripts/install.sh` does all of it.
 
 ```bash
-git clone https://github.com/ajwann/queenscoach.git
-cd queenscoach
-sudo scripts/install.sh
+git clone https://github.com/ajwann/queenscoach.git ~/queenscoach
+sudo ~/queenscoach/scripts/install.sh
 ```
 
 It prompts for four things: the hostname, your Google OAuth client ID and
 secret, the address allowed to use the server, and a Cloudflare API token.
+
+**Clone to your home directory, not `/opt`.** That first clone exists only to
+give you the script. The script makes its own checkout at `/opt/queenscoach`, owned
+by the service user, and that is what actually runs. It also `git reset --hard`s
+that directory on every run, so running the script from inside it would rewrite
+the script mid-execution - it refuses to start if you try.
+
+Keep the home clone: re-running it is how you update and uninstall.
 
 ## How it is exposed
 
@@ -135,8 +142,8 @@ Claude registers itself, opens Google, you approve. Requires a paid Claude plan.
 journalctl -u queenscoach -f              # server logs
 journalctl -u queenscoach-tunnel -f       # tunnel logs
 systemctl restart queenscoach             # restart
-sudo scripts/install.sh                # update to the latest commit
-sudo scripts/install.sh --uninstall    # remove
+sudo ~/queenscoach/scripts/install.sh              # update to the latest commit
+sudo ~/queenscoach/scripts/install.sh --uninstall  # remove
 ```
 
 Tokens live in memory, so a restart signs everyone out and the app reconnects
@@ -149,5 +156,5 @@ Cloudflare reveals a tunnel's secret only when it is created. If
 than guessing. Rebuild it and repoint DNS in one step:
 
 ```bash
-sudo scripts/install.sh --recreate-tunnel
+sudo ~/queenscoach/scripts/install.sh --recreate-tunnel
 ```
