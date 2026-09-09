@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -192,8 +193,8 @@ class GoogleOAuthConfig:
 class HttpConfig:
     """Settings for the HTTP transport, including its OAuth configuration."""
 
-    #: Interface uvicorn binds. Loopback by default: a public deployment is
-    #: expected to sit behind a TLS-terminating proxy.
+    #: Interface uvicorn binds. Loopback by default, which suits a server behind
+    #: a proxy or tunnel; a server terminating its own TLS binds a real address.
     host: str
     port: int
     #: The externally reachable origin, e.g. ``https://cats.example.com``. It is
@@ -202,6 +203,16 @@ class HttpConfig:
     public_url: str
     mcp_path: str
     google: GoogleOAuthConfig
+    #: PEM certificate chain and private key. Set together to serve HTTPS
+    #: directly, with no proxy in front; left unset the server speaks plain
+    #: HTTP and something else is expected to terminate TLS.
+    tls_certfile: str | None = None
+    tls_keyfile: str | None = None
+
+    @property
+    def serves_tls(self) -> bool:
+        """Whether this server terminates TLS itself."""
+        return self.tls_certfile is not None and self.tls_keyfile is not None
 
     @property
     def resource_url(self) -> str:
@@ -212,6 +223,27 @@ class HttpConfig:
     def callback_url(self) -> str:
         """Redirect URI registered with Google for this deployment."""
         return f"{self.public_url}{GOOGLE_CALLBACK_PATH}"
+
+
+def _read_readable_file(env: Mapping[str, str], key: str, override: str | None) -> str | None:
+    """Resolve a path that must exist and be readable by this process.
+
+    Checked at startup rather than at first connection, so a bad path or a
+    key the service user cannot read fails loudly at boot instead of breaking
+    the first TLS handshake.
+    """
+    raw = override if override is not None else (env.get(key) or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_file():
+        raise ConfigError(f"{key} is not a file: {path}")
+    try:
+        with path.open("rb"):
+            pass
+    except OSError as error:
+        raise ConfigError(f"{key} cannot be read: {path} ({error.strerror})") from error
+    return str(path)
 
 
 def _read_required(env: Mapping[str, str], key: str, hint: str) -> str:
@@ -263,6 +295,8 @@ def load_http_config(
     host: str | None = None,
     port: int | None = None,
     public_url: str | None = None,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
 ) -> HttpConfig:
     """Build the HTTP transport's config from the environment.
 
@@ -344,12 +378,22 @@ def load_http_config(
         / 1000,
     )
 
+    certfile = _read_readable_file(env, "CATS_TLS_CERT", tls_cert)
+    keyfile = _read_readable_file(env, "CATS_TLS_KEY", tls_key)
+    if (certfile is None) != (keyfile is None):
+        missing = "CATS_TLS_KEY" if keyfile is None else "CATS_TLS_CERT"
+        raise ConfigError(
+            f"{missing} must be set too: serving TLS needs both a certificate and a key"
+        )
+
     return HttpConfig(
         host=resolved_host,
         port=resolved_port,
         public_url=origin,
         mcp_path=_DEFAULT_MCP_PATH,
         google=google,
+        tls_certfile=certfile,
+        tls_keyfile=keyfile,
     )
 
 

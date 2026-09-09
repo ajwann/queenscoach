@@ -1,7 +1,5 @@
-# systemd unit for the HTTP transport. See deploy/README.md.
-#
-#   sudo cp deploy/queenscoach.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now queenscoach
+# Installed to /etc/systemd/system/ by scripts/install.sh.
+# The server listens on loopback; the Cloudflare tunnel is the only way in.
 
 [Unit]
 Description=CATS transit MCP server
@@ -15,14 +13,16 @@ User=catsmcp
 Group=catsmcp
 WorkingDirectory=/opt/queenscoach
 
-# Holds the Google client secret; keep it root-owned and mode 0600.
+# Holds the Google client secret; root-owned, mode 0600.
 EnvironmentFile=/etc/queenscoach.env
 ExecStart=/opt/queenscoach/.venv/bin/queenscoach --transport http
 
 Restart=on-failure
 RestartSec=5s
 
-# The server binds loopback only; the tunnel reaches it from this host.
+# Binding loopback above 1024 needs no capability whatsoever.
+CapabilityBoundingSet=
+
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
@@ -31,9 +31,11 @@ ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictAddressFamilies=AF_INET AF_INET6
+# AF_UNIX is needed for name resolution through nsswitch.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=true
 RestrictRealtime=true
+RestrictSUIDSGID=true
 LockPersonality=true
 SystemCallArchitectures=native
 SystemCallFilter=@system-service

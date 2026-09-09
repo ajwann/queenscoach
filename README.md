@@ -160,14 +160,18 @@ Google account on the internet. Unverified Google addresses are always refused.
 | `/authorize`, `/token`, `/revoke` | The OAuth endpoints. |
 | `/auth/google/callback` | Where Google returns the user. |
 
-See [`deploy/`](deploy/README.md) for an end-to-end walkthrough of running this
-on a Raspberry Pi behind a Cloudflare tunnel, including the systemd unit and the
-Google Cloud setup.
+[`scripts/install.sh`](scripts/install.sh) does a whole deployment: a system
+user under `/opt`, a Cloudflare tunnel and its DNS record created over the API,
+both systemd units, and a verification pass. No port forwarding, so it works
+behind CGNAT or a locked router. See [`deploy/`](deploy/README.md).
 
 **Deployment notes.**
 
-- The server binds `127.0.0.1` by default and expects a TLS-terminating proxy in front
-  of it. `CATS_PUBLIC_URL` is what clients dial and is this server's OAuth issuer
+- By default the server speaks plain HTTP and expects a tunnel or proxy to
+  terminate TLS, which is what the install script sets up. Setting
+  `CATS_TLS_CERT` and `CATS_TLS_KEY` instead makes it serve HTTPS itself, for a
+  deployment with nothing in front of it.
+- `CATS_PUBLIC_URL` is what clients dial and is this server's OAuth issuer
   identifier, so it must be the external URL, not the bind address.
 - Token state is in memory and therefore per-process: restarting invalidates
   outstanding tokens, and running several replicas behind one hostname would need a
@@ -256,6 +260,8 @@ Read only when `--transport http` is selected.
 | `CATS_ALLOWED_EMAILS` | | — | Allowed addresses, comma- or space-separated. |
 | `CATS_ALLOWED_DOMAINS` | | — | Allowed bare domains, e.g. `example.com`. |
 | `CATS_ALLOW_ANY_GOOGLE_ACCOUNT` | | `false` | Opt in to admitting every Google account. |
+| `CATS_TLS_CERT` | `--tls-cert` | — | PEM chain, to serve HTTPS directly. |
+| `CATS_TLS_KEY` | `--tls-key` | — | PEM private key. Required with the above. |
 | `CATS_ACCESS_TOKEN_TTL_MS` | | `3600000` | Access token lifetime. |
 | `CATS_REFRESH_TOKEN_TTL_MS` | | `2592000000` | Refresh token lifetime. |
 
@@ -277,6 +283,9 @@ One of the three allow-list settings is required; see above.
 | `oauth.py` | OAuth authorization server, with Google as the login |
 | `http.py` | Streamable HTTP transport and the Google callback route |
 | `main.py` | CLI entry point and transport selection |
+
+Plus [`scripts/install.sh`](scripts/install.sh), which deploys the HTTP
+transport onto a Debian host.
 
 ## Development
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlsplit
 
+import uvicorn
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
@@ -124,14 +125,27 @@ def create_http_app(
 
 
 async def serve_http(deps: Dependencies, config: HttpConfig) -> None:
-    """Run the HTTP transport until the process is stopped."""
-    server = create_http_server(deps, config)
-    _logger.info("starting on http://%s:%d%s", config.host, config.port, config.mcp_path)
+    """Run the HTTP transport until the process is stopped.
+
+    uvicorn is driven directly rather than through the SDK's helper, because
+    only this way can the server terminate its own TLS - the deployment that
+    has no proxy or tunnel in front of it.
+    """
+    scheme = "https" if config.serves_tls else "http"
+    _logger.info("starting on %s://%s:%d%s", scheme, config.host, config.port, config.mcp_path)
     _logger.info("issuer and resource advertised as %s", config.resource_url)
     _logger.info("google redirect URI must be registered as %s", config.callback_url)
-    await server.run_streamable_http_async(
+    if not config.serves_tls:
+        _logger.info("serving plain HTTP; a proxy or tunnel must terminate TLS")
+
+    settings = uvicorn.Config(
+        create_http_app(deps, config),
         host=config.host,
         port=config.port,
-        streamable_http_path=config.mcp_path,
-        transport_security=_transport_security(config),
+        log_level="warning",
+        # Diagnostics go to the same stderr logger as the rest of the server.
+        log_config=None,
+        ssl_certfile=config.tls_certfile,
+        ssl_keyfile=config.tls_keyfile,
     )
+    await uvicorn.Server(settings).serve()

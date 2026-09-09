@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 
 from queenscoach.config import ConfigError, load_config, load_http_config, load_transport
@@ -162,3 +165,45 @@ def test_a_public_url_without_tls_is_refused_outside_loopback() -> None:
         load_http_config({**GOOGLE_ENV, "CATS_PUBLIC_URL": "http://127.0.0.1:8000"}).public_url
         == "http://127.0.0.1:8000"
     )
+
+
+# -- Serving TLS directly --------------------------------------------------
+
+
+def test_tls_is_off_unless_both_files_are_given() -> None:
+    config = load_http_config({**GOOGLE_ENV, "CATS_PUBLIC_URL": "https://cats.test"})
+    assert config.serves_tls is False
+    assert config.tls_certfile is None
+
+
+def test_tls_needs_a_certificate_and_a_key(tmp_path: Path) -> None:
+    cert = tmp_path / "fullchain.pem"
+    cert.write_text("not really a certificate")
+    env = {**GOOGLE_ENV, "CATS_PUBLIC_URL": "https://cats.test", "CATS_TLS_CERT": str(cert)}
+
+    with pytest.raises(ConfigError, match="CATS_TLS_KEY must be set too"):
+        load_http_config(env)
+
+    key = tmp_path / "privkey.pem"
+    key.write_text("not really a key")
+    config = load_http_config({**env, "CATS_TLS_KEY": str(key)})
+    assert config.serves_tls is True
+    assert config.tls_certfile == str(cert)
+    assert config.tls_keyfile == str(key)
+
+
+def test_an_unreadable_certificate_is_reported_at_startup(tmp_path: Path) -> None:
+    missing = tmp_path / "nope.pem"
+    env = {**GOOGLE_ENV, "CATS_PUBLIC_URL": "https://cats.test", "CATS_TLS_CERT": str(missing)}
+    with pytest.raises(ConfigError, match="is not a file"):
+        load_http_config(env)
+
+    key = tmp_path / "privkey.pem"
+    key.write_text("secret")
+    key.chmod(0o000)
+    cert = tmp_path / "fullchain.pem"
+    cert.write_text("cert")
+    if os.geteuid() == 0:
+        pytest.skip("root reads any file, so an unreadable key cannot be simulated")
+    with pytest.raises(ConfigError, match="cannot be read"):
+        load_http_config({**env, "CATS_TLS_CERT": str(cert), "CATS_TLS_KEY": str(key)})

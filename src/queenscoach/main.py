@@ -66,6 +66,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--port", type=int, default=None, help="Port to bind (env CATS_HTTP_PORT; default 8000)."
     )
     http_options.add_argument(
+        "--tls-cert",
+        default=None,
+        help=(
+            "PEM certificate chain, to serve HTTPS directly with no proxy in "
+            "front (env CATS_TLS_CERT). Requires --tls-key."
+        ),
+    )
+    http_options.add_argument(
+        "--tls-key", default=None, help="PEM private key (env CATS_TLS_KEY). Requires --tls-cert."
+    )
+    http_options.add_argument(
         "--public-url",
         default=None,
         help=(
@@ -91,7 +102,13 @@ async def serve(args: argparse.Namespace, transport: Transport) -> None:
         # Imported here so a stdio-only run never pays for starlette/uvicorn.
         from .http import serve_http
 
-        http_config = load_http_config(host=args.host, port=args.port, public_url=args.public_url)
+        http_config = load_http_config(
+            host=args.host,
+            port=args.port,
+            public_url=args.public_url,
+            tls_cert=args.tls_cert,
+            tls_key=args.tls_key,
+        )
         await serve_http(deps, http_config)
         return
 
