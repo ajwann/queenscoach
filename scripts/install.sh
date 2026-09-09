@@ -146,6 +146,17 @@ fi
 step "Checking this machine"
 
 [[ $EUID -eq 0 ]] || die "run this with sudo: sudo $0"
+
+# This script git-resets $INSTALL_DIR. Bash reads a script incrementally by
+# file offset, so rewriting it mid-run can send execution into garbage. Run
+# from a checkout somewhere else and that cannot happen.
+case "$SCRIPT_DIR/" in
+  "$INSTALL_DIR"/*)
+    die "do not run this from inside $INSTALL_DIR - it rewrites that directory,
+    including this script, while it runs. Clone somewhere else and run it there:
+        git clone $REPO ~/queenscoach && sudo ~/queenscoach/scripts/install.sh" ;;
+esac
+
 command -v apt-get >/dev/null || die "this script targets Debian/Raspberry Pi OS (no apt-get)"
 command -v systemctl >/dev/null || die "systemd is required"
 
