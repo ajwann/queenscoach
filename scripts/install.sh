@@ -19,7 +19,7 @@
 #   sudo scripts/install.sh
 #   sudo CATS_HOSTNAME=cats.example.com CLOUDFLARE_API_TOKEN=... \
 #        CATS_GOOGLE_CLIENT_ID=... CATS_GOOGLE_CLIENT_SECRET=... \
-#        CATS_ALLOWED_EMAILS=you@gmail.com \
+#        CATS_ALLOWED_EMAILS=you@gmail.com,someone@example.com \
 #        scripts/install.sh --non-interactive
 #
 # Flags:
@@ -197,7 +197,22 @@ EOF
 
 ask CATS_GOOGLE_CLIENT_ID "Google client ID"
 ask CATS_GOOGLE_CLIENT_SECRET "Google client secret" secret
-ask CATS_ALLOWED_EMAILS "Google address allowed to use the server"
+ask CATS_ALLOWED_EMAILS "Google address(es) allowed, comma-separated"
+
+# Normalise to a bare comma-separated list: lowercased, de-duplicated, and
+# without the spaces a person naturally types after a comma. The server would
+# accept those, but keeping them out of the unit's EnvironmentFile avoids
+# depending on how systemd treats an unquoted value containing spaces.
+CATS_ALLOWED_EMAILS="$(python3 -c '
+import sys
+entries = sys.argv[1].replace(",", " ").split()
+cleaned = dict.fromkeys(entry.strip().lower() for entry in entries if entry.strip())
+for entry in cleaned:
+    if "@" not in entry or entry.startswith("@") or entry.endswith("@"):
+        sys.exit("not an email address: " + entry)
+print(",".join(cleaned))
+' "$CATS_ALLOWED_EMAILS")" || die "CATS_ALLOWED_EMAILS must be email addresses, comma-separated"
+info "allowing: ${CATS_ALLOWED_EMAILS//,/, }"
 
 cat <<EOF
 
@@ -473,7 +488,8 @@ ${GRN}==>${RST} ${B}Done.${RST}
       ${B}$PUBLIC_URL/mcp${RST}
 
     It is account-level, so it appears on your iPhone once added anywhere.
-    Sign-in goes through Google, and only ${B}$CATS_ALLOWED_EMAILS${RST} is admitted.
+    Sign-in goes through Google. Only these accounts are admitted:
+      ${B}${CATS_ALLOWED_EMAILS//,/, }${RST}
 
     ${DIM}logs      journalctl -u queenscoach -f${RST}
     ${DIM}tunnel    journalctl -u queenscoach-tunnel -f${RST}

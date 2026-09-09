@@ -8,7 +8,35 @@ sudo ~/queenscoach/scripts/install.sh
 ```
 
 It prompts for four things: the hostname, your Google OAuth client ID and
-secret, the address allowed to use the server, and a Cloudflare API token.
+secret, the Google address(es) allowed to use the server, and a Cloudflare API
+token.
+
+## Who is allowed in
+
+Google proves who a caller is; the allow list decides whether that person may
+use the server. The URL is public, so without a list anyone with a Google
+account could sign in — which is why the server refuses to start without one.
+
+Enter your own Google address, or several separated by commas:
+
+```
+you@gmail.com, someone@example.com
+```
+
+Each must also be a **Test user** on the Google consent screen. If those two
+disagree, sign-in fails at Google before the allow list is ever reached, and the
+error will not point here.
+
+Change it later in `/etc/queenscoach.env` and restart:
+
+```bash
+sudo nano /etc/queenscoach.env          # CATS_ALLOWED_EMAILS=...
+sudo systemctl restart queenscoach
+```
+
+`CATS_ALLOWED_DOMAINS=example.com` admits every verified address on a domain
+instead, and `CATS_ALLOW_ANY_GOOGLE_ACCOUNT=true` admits everyone — that last
+one makes the server public to anyone who finds the URL.
 
 **Clone to your home directory, not `/opt`.** That first clone exists only to
 give you the script. The script makes its own checkout at `/opt/queenscoach`, owned
