@@ -1,14 +1,17 @@
 """MCP server definition: the tool registrations and their argument schemas.
 
-Kept apart from the transport, which :mod:`queenscoach.main` binds to stdio.
+Kept apart from the transport. :mod:`queenscoach.main` binds it to stdio, and
+:mod:`queenscoach.http` binds the same definition to Streamable HTTP behind OAuth.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable
-from typing import Annotated
+from typing import Annotated, Any
 
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
@@ -80,10 +83,27 @@ async def _respond(name: str, result: Awaitable[ToolResult]) -> ToolResult:
     return payload
 
 
-def create_server(deps: Dependencies) -> MCPServer:
-    """Build the MCP server with the three CATS tools registered."""
+def create_server(
+    deps: Dependencies,
+    *,
+    auth: AuthSettings | None = None,
+    auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+) -> MCPServer:
+    """Build the MCP server with the three CATS tools registered.
+
+    Args:
+        deps: Feed and schedule loaders the tools read through.
+        auth: OAuth settings; only the HTTP transport passes these. Left unset,
+            the server is unauthenticated, which is what stdio wants - the
+            client already owns the process.
+        auth_server_provider: The authorization server backing ``auth``.
+    """
     server: MCPServer = MCPServer(
-        name=SERVER_NAME, version=SERVER_VERSION, instructions=INSTRUCTIONS
+        name=SERVER_NAME,
+        version=SERVER_VERSION,
+        instructions=INSTRUCTIONS,
+        auth=auth,
+        auth_server_provider=auth_server_provider,
     )
 
     @server.tool(

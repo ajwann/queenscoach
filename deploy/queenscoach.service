@@ -1,0 +1,43 @@
+# systemd unit for the HTTP transport. See deploy/README.md.
+#
+#   sudo cp deploy/queenscoach.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now queenscoach
+
+[Unit]
+Description=CATS transit MCP server
+Documentation=https://github.com/ajwann/queenscoach
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=catsmcp
+Group=catsmcp
+WorkingDirectory=/opt/queenscoach
+
+# Holds the Google client secret; keep it root-owned and mode 0600.
+EnvironmentFile=/etc/queenscoach.env
+ExecStart=/opt/queenscoach/.venv/bin/queenscoach --transport http
+
+Restart=on-failure
+RestartSec=5s
+
+# The server binds loopback only; the tunnel reaches it from this host.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

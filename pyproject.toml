@@ -12,6 +12,11 @@ dependencies = [
   "mcp>=2.2,<3",
   "gtfs-realtime-bindings>=2.2,<3",
   "httpx>=0.28,<1",
+  # The http transport: the ASGI app, the server that runs it, and ID token
+  # verification. All three also arrive with mcp; declared because we import them.
+  "starlette>=0.48,<2",
+  "uvicorn>=0.34,<1",
+  "pyjwt[crypto]>=2.10,<3",
 ]
 
 [project.optional-dependencies]

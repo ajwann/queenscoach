@@ -1,8 +1,9 @@
 # queenscoach
 
 An MCP server for live **Charlotte Area Transit System (CATS)** bus and light rail data,
-built on the agency's public GTFS-Realtime feeds. It runs over stdio, launched by the
-MCP client that uses it.
+built on the agency's public GTFS-Realtime feeds. It runs over **stdio**, launched by
+the MCP client that uses it, or over **HTTP** with Google OAuth in front of it, for a
+hosted server. Both transports serve the same three tools.
 
 ## Tools
 
@@ -57,7 +58,19 @@ python3 -m venv .venv
 .venv/bin/pip install .
 ```
 
-## Run it
+## Transports
+
+Pick one with `--transport` or `CATS_TRANSPORT`; the default is `stdio`.
+
+```bash
+queenscoach                                  # stdio (default)
+queenscoach --transport http --port 8000     # streamable HTTP + Google OAuth
+```
+
+### stdio
+
+For a server the client launches itself. No authentication: the client already owns
+the process.
 
 Register it with Claude Code:
 
@@ -81,6 +94,85 @@ Or in an MCP client config file:
 installed works as the command.
 
 stdout carries MCP protocol traffic only; all diagnostics go to stderr.
+
+### HTTP with Google OAuth
+
+For a hosted server anyone with the URL can reach. Every request to `/mcp` needs a
+bearer token, and the only way to get one is to sign in with a Google account that is
+on the allow list.
+
+**How the sign-in works.** MCP clients register themselves dynamically and expect an
+authorization server at the MCP server's own origin. Google offers neither dynamic
+registration nor tokens audience-restricted to a third-party resource, so this server
+is its own OAuth 2.1 authorization server and delegates only the login to Google:
+
+```
+MCP client  <--OAuth-->  queenscoach  <--OAuth-->  Google
+```
+
+Google's answer is used exactly once, to learn which account signed in. That email is
+checked against the allow list, and only then does this server mint its own tokens.
+Google's tokens are never handed to the client.
+
+**One-time setup in Google Cloud.** At
+[console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials),
+create an **OAuth client ID** of type **Web application** and add one authorized
+redirect URI:
+
+```
+https://your-public-url/auth/google/callback
+```
+
+It must match `CATS_PUBLIC_URL` exactly. The server logs the URI it expects at startup.
+Copy the client ID and secret into the environment below.
+
+**Run it.** `.env.example` lists every setting; the shell form is:
+
+```bash
+export CATS_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+export CATS_GOOGLE_CLIENT_SECRET=...
+export CATS_ALLOWED_EMAILS=you@example.com
+export CATS_PUBLIC_URL=https://cats.example.com
+
+queenscoach --transport http --port 8000
+```
+
+Then point a client at `https://cats.example.com/mcp`; it discovers the rest and opens
+a browser for the Google sign-in. In Claude Code:
+
+```bash
+claude mcp add --transport http cats https://cats.example.com/mcp
+```
+
+**Access is denied by default.** Startup fails unless `CATS_ALLOWED_EMAILS`,
+`CATS_ALLOWED_DOMAINS`, or an explicit `CATS_ALLOW_ANY_GOOGLE_ACCOUNT=true` says who
+may get in, so a misconfigured deployment is unreachable rather than open to every
+Google account on the internet. Unverified Google addresses are always refused.
+
+**Endpoints.**
+
+| Path | Purpose |
+| --- | --- |
+| `/mcp` | The MCP endpoint. Requires `Authorization: Bearer <token>`. |
+| `/.well-known/oauth-protected-resource/mcp` | Points clients at the authorization server. |
+| `/.well-known/oauth-authorization-server` | This server's OAuth metadata. |
+| `/register` | Dynamic client registration (RFC 7591). |
+| `/authorize`, `/token`, `/revoke` | The OAuth endpoints. |
+| `/auth/google/callback` | Where Google returns the user. |
+
+See [`deploy/`](deploy/README.md) for an end-to-end walkthrough of running this
+on a Raspberry Pi behind a Cloudflare tunnel, including the systemd unit and the
+Google Cloud setup.
+
+**Deployment notes.**
+
+- The server binds `127.0.0.1` by default and expects a TLS-terminating proxy in front
+  of it. `CATS_PUBLIC_URL` is what clients dial and is this server's OAuth issuer
+  identifier, so it must be the external URL, not the bind address.
+- Token state is in memory and therefore per-process: restarting invalidates
+  outstanding tokens, and running several replicas behind one hostname would need a
+  shared store instead.
+- Access tokens last an hour and refresh tokens 30 days, both rotated on refresh.
 
 ## Data sources
 
@@ -126,6 +218,8 @@ Verified against live feed captures:
 
 ## Configuration
 
+### Feeds (both transports)
+
 All optional; defaults target the CATS feeds above. Durations are in milliseconds.
 
 | Variable | Default |
@@ -142,6 +236,31 @@ All optional; defaults target the CATS feeds above. Durations are in millisecond
 
 Feed URLs must be `http` or `https`; anything else is rejected at startup.
 
+### Transport
+
+| Variable | CLI | Default |
+| --- | --- | --- |
+| `CATS_TRANSPORT` | `--transport` | `stdio` |
+
+### HTTP transport
+
+Read only when `--transport http` is selected.
+
+| Variable | CLI | Default | Notes |
+| --- | --- | --- | --- |
+| `CATS_HTTP_HOST` | `--host` | `127.0.0.1` | Bind address. |
+| `CATS_HTTP_PORT` | `--port` | `8000` | Bind port. |
+| `CATS_PUBLIC_URL` | `--public-url` | `http://localhost:<port>` | External origin; the OAuth issuer. |
+| `CATS_GOOGLE_CLIENT_ID` | | **required** | From Google Cloud credentials. |
+| `CATS_GOOGLE_CLIENT_SECRET` | | **required** | From Google Cloud credentials. |
+| `CATS_ALLOWED_EMAILS` | | — | Allowed addresses, comma- or space-separated. |
+| `CATS_ALLOWED_DOMAINS` | | — | Allowed bare domains, e.g. `example.com`. |
+| `CATS_ALLOW_ANY_GOOGLE_ACCOUNT` | | `false` | Opt in to admitting every Google account. |
+| `CATS_ACCESS_TOKEN_TTL_MS` | | `3600000` | Access token lifetime. |
+| `CATS_REFRESH_TOKEN_TTL_MS` | | `2592000000` | Refresh token lifetime. |
+
+One of the three allow-list settings is required; see above.
+
 ## Layout
 
 | Module | Role |
@@ -155,13 +274,15 @@ Feed URLs must be `http` or `https`; anything else is rejected at startup.
 | `transit.py` | Domain layer: joins realtime to schedule, resolves queries |
 | `tools.py` | The three tools' behavior and JSON payloads |
 | `server.py` | MCP tool registration and schemas |
-| `main.py` | stdio entry point |
+| `oauth.py` | OAuth authorization server, with Google as the login |
+| `http.py` | Streamable HTTP transport and the Google callback route |
+| `main.py` | CLI entry point and transport selection |
 
 ## Development
 
 ```bash
 .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest        # 80 tests, offline against recorded feed fixtures
+.venv/bin/pytest        # 130 tests, offline against recorded feed fixtures
 .venv/bin/mypy          # strict
 .venv/bin/ruff check .
 .venv/bin/ruff format .
@@ -171,3 +292,8 @@ Tests run against protobuf and GTFS fixtures captured from the live feeds, so th
 deterministic and make no network calls. `tests/test_feed_http.py` is the exception: it
 serves canned responses from a loopback socket so the byte cap and timeout are exercised
 for real.
+
+`tests/test_http.py` drives the whole OAuth handshake against the real ASGI app -
+registration, `/authorize`, the Google callback, `/token`, then an authenticated
+`tools/list` - with Google's token endpoint replaced by a stub, so no account or network
+is needed.

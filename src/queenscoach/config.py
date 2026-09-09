@@ -7,6 +7,10 @@ Duration environment variables are named ``*_MS`` and are given in
 milliseconds, which is the published interface these deployments already use.
 They are stored on :class:`Config` as seconds, the unit the rest of the code
 works in.
+
+Feed settings (:class:`Config`) are needed by both transports. The HTTP
+transport additionally needs :class:`HttpConfig`, which is loaded separately so
+a stdio server never has to satisfy the OAuth settings.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 _VEHICLE_POSITIONS_URL = (
@@ -28,6 +33,39 @@ _DEFAULT_STATIC_TTL_MS = 6 * 60 * 60 * 1000
 _DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 _DEFAULT_MAX_FEED_BYTES = 32 * 1024 * 1024
 _DEFAULT_MAX_STATIC_BYTES = 256 * 1024 * 1024
+
+_DEFAULT_HTTP_HOST = "127.0.0.1"
+_DEFAULT_HTTP_PORT = 8000
+_DEFAULT_MCP_PATH = "/mcp"
+
+#: Where Google returns the user after they approve the sign-in.
+GOOGLE_CALLBACK_PATH = "/auth/google/callback"
+
+#: Hosts an OAuth issuer may use without TLS, matching what the MCP SDK allows.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+#: Google's published OpenID Connect endpoints, overridable so tests can point
+#: the provider at a local stand-in.
+_GOOGLE_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 (a URL, not a secret)
+_GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
+
+#: Google signs ID tokens under both spellings of its issuer claim.
+GOOGLE_ISSUERS = ("https://accounts.google.com", "accounts.google.com")
+
+#: OAuth scopes requested from Google. "email" is what the allow list checks;
+#: the server asks for nothing else, since it only needs to know who is calling.
+GOOGLE_SCOPES = ("openid", "email")
+
+#: The one scope this server issues. Every tool is read-only, so there is
+#: nothing finer to divide.
+CATS_SCOPE = "cats:read"
+
+_DEFAULT_ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000
+_DEFAULT_REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+Transport = Literal["stdio", "http"]
+TRANSPORTS: tuple[Transport, ...] = ("stdio", "http")
 
 
 class ConfigError(Exception):
@@ -107,3 +145,224 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
             env, "CATS_MAX_STATIC_BYTES", _DEFAULT_MAX_STATIC_BYTES
         ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class GoogleOAuthConfig:
+    """Settings for delegating end-user login to Google.
+
+    ``allowed_emails`` and ``allowed_domains`` are the authorization policy:
+    Google proves *who* the caller is, and these decide whether that person may
+    use the server. Both are lowercase; email comparison is exact and domain
+    comparison is on the part after the ``@``.
+    """
+
+    client_id: str
+    client_secret: str
+    allowed_emails: frozenset[str]
+    allowed_domains: frozenset[str]
+    #: Set only by an explicit opt-in, and then any Google account is admitted.
+    allow_any_account: bool
+    authorization_url: str
+    token_url: str
+    jwks_url: str
+    access_token_ttl_seconds: float
+    refresh_token_ttl_seconds: float
+
+    def permits(self, email: str, *, email_verified: bool) -> bool:
+        """Whether the signed-in Google account may use this server.
+
+        An unverified address is never admitted: on a Workspace-hosted domain
+        an unverified address does not prove control of the mailbox, so it
+        cannot be matched against a domain allow list.
+        """
+        if not email_verified:
+            return False
+        address = email.strip().lower()
+        if "@" not in address:
+            return False
+        if self.allow_any_account:
+            return True
+        if address in self.allowed_emails:
+            return True
+        return address.rpartition("@")[2] in self.allowed_domains
+
+
+@dataclass(frozen=True, slots=True)
+class HttpConfig:
+    """Settings for the HTTP transport, including its OAuth configuration."""
+
+    #: Interface uvicorn binds. Loopback by default: a public deployment is
+    #: expected to sit behind a TLS-terminating proxy.
+    host: str
+    port: int
+    #: The externally reachable origin, e.g. ``https://cats.example.com``. It is
+    #: this server's OAuth issuer identifier, so it must match what clients
+    #: actually dial, not the bind address.
+    public_url: str
+    mcp_path: str
+    google: GoogleOAuthConfig
+
+    @property
+    def resource_url(self) -> str:
+        """RFC 8707 resource identifier: the MCP endpoint clients get tokens for."""
+        return f"{self.public_url}{self.mcp_path}"
+
+    @property
+    def callback_url(self) -> str:
+        """Redirect URI registered with Google for this deployment."""
+        return f"{self.public_url}{GOOGLE_CALLBACK_PATH}"
+
+
+def _read_required(env: Mapping[str, str], key: str, hint: str) -> str:
+    value = (env.get(key) or "").strip()
+    if not value:
+        raise ConfigError(f"{key} is required for the http transport. {hint}")
+    return value
+
+
+def _read_flag(env: Mapping[str, str], key: str) -> bool:
+    raw = (env.get(key) or "").strip().lower()
+    if not raw:
+        return False
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    raise ConfigError(f"{key} must be a boolean, got {raw!r}")
+
+
+def _read_list(env: Mapping[str, str], key: str) -> frozenset[str]:
+    """Parse a comma- or space-separated list, lowercased and de-duplicated."""
+    raw = env.get(key) or ""
+    return frozenset(item.strip().lower() for item in raw.replace(",", " ").split() if item.strip())
+
+
+def _read_port(env: Mapping[str, str], key: str, fallback: int) -> int:
+    port = _read_positive_int(env, key, fallback)
+    if port > 65535:
+        raise ConfigError(f"{key} must be a port number between 1 and 65535, got {port}")
+    return port
+
+
+def _read_origin(env: Mapping[str, str], key: str, fallback: str) -> str:
+    """Read a base URL and strip any path, query, or fragment.
+
+    RFC 8414 compares issuer identifiers by exact string match, so a stray
+    trailing slash here would break client discovery.
+    """
+    parts = urlsplit(_read_url(env, key, fallback))
+    if parts.username or parts.password:
+        raise ConfigError(f"{key} must not contain credentials")
+    return urlunsplit((parts.scheme, parts.netloc, "", "", "")).rstrip("/")
+
+
+def load_http_config(
+    env: Mapping[str, str] | None = None,
+    *,
+    host: str | None = None,
+    port: int | None = None,
+    public_url: str | None = None,
+) -> HttpConfig:
+    """Build the HTTP transport's config from the environment.
+
+    Command-line overrides take precedence over the environment. Google client
+    credentials are mandatory and access is denied by default: one of
+    ``CATS_ALLOWED_EMAILS``, ``CATS_ALLOWED_DOMAINS``, or an explicit
+    ``CATS_ALLOW_ANY_GOOGLE_ACCOUNT`` must say who is allowed in, so a
+    misconfigured deployment is unreachable rather than open to every Google
+    account on the internet.
+
+    Raises:
+        ConfigError: if a required setting is missing or malformed.
+    """
+    env = os.environ if env is None else env
+
+    resolved_host = host or (env.get("CATS_HTTP_HOST") or "").strip() or _DEFAULT_HTTP_HOST
+    if port is not None and not 1 <= port <= 65535:
+        raise ConfigError(f"port must be between 1 and 65535, got {port}")
+    resolved_port = (
+        port if port is not None else _read_port(env, "CATS_HTTP_PORT", _DEFAULT_HTTP_PORT)
+    )
+
+    origin_env = {"CATS_PUBLIC_URL": public_url} if public_url is not None else env
+    origin = _read_origin(origin_env, "CATS_PUBLIC_URL", f"http://localhost:{resolved_port}")
+    # RFC 8414 requires an HTTPS issuer; the SDK relaxes that for loopback so a
+    # server can be tried locally. Checked here so it reads as a configuration
+    # error rather than surfacing from deep inside the transport at startup.
+    parsed_origin = urlsplit(origin)
+    if parsed_origin.scheme != "https" and parsed_origin.hostname not in _LOOPBACK_HOSTS:
+        raise ConfigError(
+            f"CATS_PUBLIC_URL must be https (or a loopback address), got {origin}. "
+            "Terminate TLS in front of this server and set its public https URL here."
+        )
+
+    allowed_emails = _read_list(env, "CATS_ALLOWED_EMAILS")
+    allowed_domains = _read_list(env, "CATS_ALLOWED_DOMAINS")
+    allow_any_account = _read_flag(env, "CATS_ALLOW_ANY_GOOGLE_ACCOUNT")
+    if not (allowed_emails or allowed_domains or allow_any_account):
+        raise ConfigError(
+            "No Google accounts are allowed to reach this server. Set CATS_ALLOWED_EMAILS "
+            "and/or CATS_ALLOWED_DOMAINS, or set CATS_ALLOW_ANY_GOOGLE_ACCOUNT=true to "
+            "intentionally admit every Google account."
+        )
+    for domain in allowed_domains:
+        if "@" in domain or "." not in domain:
+            raise ConfigError(
+                "CATS_ALLOWED_DOMAINS entries must be bare domains like example.com, "
+                f"got {domain!r}"
+            )
+    for address in allowed_emails:
+        if "@" not in address:
+            raise ConfigError(f"CATS_ALLOWED_EMAILS entries must be addresses, got {address!r}")
+
+    google = GoogleOAuthConfig(
+        client_id=_read_required(
+            env,
+            "CATS_GOOGLE_CLIENT_ID",
+            "Create an OAuth 2.0 Web application client at "
+            "https://console.cloud.google.com/apis/credentials.",
+        ),
+        client_secret=_read_required(
+            env, "CATS_GOOGLE_CLIENT_SECRET", "It is shown when the OAuth client is created."
+        ),
+        allowed_emails=allowed_emails,
+        allowed_domains=allowed_domains,
+        allow_any_account=allow_any_account,
+        authorization_url=_read_url(
+            env, "CATS_GOOGLE_AUTHORIZATION_URL", _GOOGLE_AUTHORIZATION_URL
+        ),
+        token_url=_read_url(env, "CATS_GOOGLE_TOKEN_URL", _GOOGLE_TOKEN_URL),
+        jwks_url=_read_url(env, "CATS_GOOGLE_JWKS_URL", _GOOGLE_JWKS_URL),
+        access_token_ttl_seconds=_read_positive_int(
+            env, "CATS_ACCESS_TOKEN_TTL_MS", _DEFAULT_ACCESS_TOKEN_TTL_MS
+        )
+        / 1000,
+        refresh_token_ttl_seconds=_read_positive_int(
+            env, "CATS_REFRESH_TOKEN_TTL_MS", _DEFAULT_REFRESH_TOKEN_TTL_MS
+        )
+        / 1000,
+    )
+
+    return HttpConfig(
+        host=resolved_host,
+        port=resolved_port,
+        public_url=origin,
+        mcp_path=_DEFAULT_MCP_PATH,
+        google=google,
+    )
+
+
+def load_transport(
+    env: Mapping[str, str] | None = None, *, override: str | None = None
+) -> Transport:
+    """Resolve the transport from a CLI override or ``CATS_TRANSPORT``.
+
+    Raises:
+        ConfigError: if the named transport is not one this server implements.
+    """
+    env = os.environ if env is None else env
+    raw = (override or env.get("CATS_TRANSPORT") or "stdio").strip().lower()
+    if raw not in TRANSPORTS:
+        raise ConfigError(f"unknown transport {raw!r}; expected one of {', '.join(TRANSPORTS)}")
+    return raw
