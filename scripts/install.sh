@@ -140,6 +140,27 @@ print($1)
 "
 }
 
+local_tunnel_id() { # local_tunnel_id NAME -> its id, empty when there is none
+  # Only for the --tunnel-login path, where cloudflared holds the credentials.
+  # A live tunnel's deleted_at is the zero timestamp 0001-01-01T00:00:00Z, not
+  # null, so an empty string is the wrong test for "still exists" - every live
+  # tunnel would look deleted and be skipped.
+  local raw
+  raw="$("$TUNNEL_BIN" tunnel list --output json 2>/dev/null || true)"
+  printf '%s' "$raw" | python3 -c '
+import json, sys
+name = sys.argv[1]
+try:
+    tunnels = json.load(sys.stdin) or []
+except ValueError:
+    tunnels = []
+def live(tunnel):
+    stamp = str(tunnel.get("deleted_at") or "")
+    return not stamp or stamp.startswith("0001-01-01")
+print(next((t["id"] for t in tunnels if t["name"] == name and live(t)), ""))
+' "$1"
+}
+
 # -- uninstall ---------------------------------------------------------------
 
 if (( UNINSTALL )); then
@@ -414,16 +435,7 @@ EOF
     info "authorised"
   fi
 
-  TUNNEL_ID="$("$TUNNEL_BIN" tunnel list --output json 2>/dev/null \
-    | python3 -c '
-import json, sys
-name = sys.argv[1]
-try:
-    tunnels = json.load(sys.stdin) or []
-except ValueError:
-    tunnels = []
-print(next((t["id"] for t in tunnels if t["name"] == name and not t.get("deleted_at")), ""))
-' "$TUNNEL_NAME")"
+  TUNNEL_ID="$(local_tunnel_id "$TUNNEL_NAME")"
 
   if [[ -n $TUNNEL_ID ]] && (( RECREATE_TUNNEL )); then
     info "deleting the existing tunnel $TUNNEL_ID"
@@ -440,12 +452,7 @@ print(next((t["id"] for t in tunnels if t["name"] == name and not t.get("deleted
   else
     info "creating tunnel '$TUNNEL_NAME'"
     "$TUNNEL_BIN" tunnel create "$TUNNEL_NAME" >/dev/null
-    TUNNEL_ID="$("$TUNNEL_BIN" tunnel list --output json \
-      | python3 -c '
-import json, sys
-name = sys.argv[1]
-print(next((t["id"] for t in json.load(sys.stdin) if t["name"] == name), ""))
-' "$TUNNEL_NAME")"
+    TUNNEL_ID="$(local_tunnel_id "$TUNNEL_NAME")"
     [[ -n $TUNNEL_ID ]] || die "cloudflared created no tunnel named $TUNNEL_NAME"
     install -o "$TUNNEL_USER" -g "$TUNNEL_USER" -m 600 \
       "/root/.cloudflared/$TUNNEL_ID.json" "$TUNNEL_DIR/$TUNNEL_ID.json"
