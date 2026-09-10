@@ -2,6 +2,8 @@
 
 # queenscoach
 
+[![CI](https://github.com/ajwann/queenscoach/actions/workflows/ci.yml/badge.svg)](https://github.com/ajwann/queenscoach/actions/workflows/ci.yml)
+
 An MCP server for live **Charlotte Area Transit System (CATS)** bus and light rail data,
 built on the agency's public GTFS-Realtime feeds. It runs over **stdio**, launched by
 the MCP client that uses it, or over **HTTP** with Google OAuth in front of it, for a
