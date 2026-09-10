@@ -258,9 +258,9 @@ TOKEN_HELP="    Fix it at https://dash.cloudflare.com/profile/api-tokens (Create
     under 'Cloudflare One / Zero Trust' and 'DNS & Zones'. Search the picker
     for the exact names below if the grouping is unfamiliar.
 
-      Cloudflare Tunnel   Edit    (account-level)
-      DNS                 Edit    (zone-level)
-      Zone                Read    (zone-level)
+      Cloudflare Tunnel Write   (account-level; older UIs say Tunnel: Edit)
+      DNS Write                 (zone-level;    older UIs say DNS: Edit)
+      Zone Read                 (zone-level)
 
     Then scope it: Account Resources must include your account, and Zone
     Resources must be 'Include -> Specific zone -> $ZONE' (or 'All zones').

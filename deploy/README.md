@@ -108,16 +108,19 @@ URI it expects at every startup.
 [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
 → **Create Token** → **Custom token**. Three permissions:
 
-| Permission | Level | Access | Why |
+| Permission | Level | Category | Why |
 | --- | --- | --- | --- |
-| Cloudflare Tunnel | Account | Edit | Create the tunnel |
-| DNS | Zone | Edit | The `CNAME` pointing at it |
-| Zone | Zone | Read | Find the zone id |
+| **Cloudflare Tunnel Write** | Account | Cloudflare One / Zero Trust | Create the tunnel |
+| **DNS Write** | Zone | DNS & Zones | The `CNAME` pointing at it |
+| **Zone Read** | Zone | DNS & Zones | Find the zone id |
 
-Cloudflare groups these by category in the picker rather than listing them
-flat — Cloudflare Tunnel sits under *Cloudflare One / Zero Trust*, and DNS and
-Zone under *DNS & Zones*. Searching the picker for the permission name is
-quicker than hunting through the groups.
+Newer Cloudflare UIs group permissions by category and name them `Read`/`Write`;
+older ones list them flat under Account and Zone and say `Edit` where the table
+says `Write`. Searching the picker by name beats hunting through the groups.
+
+Nothing else is needed. If a template preselected extras — Zone Settings Write,
+Cache Purge, Analytics Read, Page Rules Write — uncheck them; this server never
+uses them, and a token that leaks should be able to do as little as possible.
 
 **Permissions alone are not enough.** Scope the token too, in the sections below
 the permission rows:
