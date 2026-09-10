@@ -114,25 +114,26 @@ URI it expects at every startup.
 | **DNS Write** | Zone | DNS & Zones | The `CNAME` pointing at it |
 | **Zone Read** | Zone | DNS & Zones | Find the zone id |
 
-Newer Cloudflare UIs group permissions by category and name them `Read`/`Write`;
-older ones list them flat under Account and Zone and say `Edit` where the table
-says `Write`. Searching the picker by name beats hunting through the groups.
+Naming varies by UI generation: newer ones group by category and say
+`Read`/`Write`, older ones list permissions flat under Account and Zone and say
+`Edit` for `Write`. The tunnel permission is the awkward one — it may appear as
+*Cloudflare Tunnel*, or under its old product name *Argo Tunnel*. Note that
+"Argo Tunnel (Legacy) — grants access to **view** Cloudflare Tunnels" is the
+read-only one and is **not** enough; the install needs write access to create a
+tunnel.
 
-Nothing else is needed. If a template preselected extras — Zone Settings Write,
-Cache Purge, Analytics Read, Page Rules Write — uncheck them; this server never
-uses them, and a token that leaks should be able to do as little as possible.
-
-**Permissions alone are not enough.** Scope the token too, in the sections below
-the permission rows:
+**Permissions alone are not enough.** Scope the token too:
 
 - **Account Resources** → include your account
 - **Zone Resources** → `Include → Specific zone → your domain` (or *All zones*)
 
-An unscoped token authenticates perfectly and then sees nothing, which is the
-single most common reason the install stops.
+An unscoped token authenticates perfectly and then sees nothing.
 
-The script checks all of this before it touches the machine, and names the
-missing piece if something is wrong. To check a token by hand:
+Nothing else is needed. If a template preselected extras — Zone Settings Write,
+Cache Purge, Analytics Read, Page Rules Write — uncheck them.
+
+The script checks all of this before it touches the machine and names the
+missing piece. To check a token by hand:
 
 ```bash
 curl -sS -H "Authorization: Bearer $TOKEN" \
@@ -144,6 +145,23 @@ An empty `result` means the token sees no zones.
 The token is used only during the install and is **never written to disk** — the
 tunnel authenticates with its own credentials afterwards. You can delete the
 token once the install succeeds.
+
+## If you cannot create a suitable token
+
+Some accounts do not offer a writable tunnel permission at all, only the
+read-only *Argo Tunnel (Legacy)* entry. Skip the token entirely:
+
+```bash
+sudo ~/queenscoach/scripts/install.sh --tunnel-login
+```
+
+cloudflared prints a URL; open it on any machine with a browser, sign in, and
+pick your zone. The certificate it downloads authorises both creating the tunnel
+and writing its DNS record, so no API token is involved. Everything else about
+the install is identical.
+
+The certificate lands in `/root/.cloudflared/cert.pem` and is reused on later
+runs, so the browser step happens once.
 
 ## Verify
 

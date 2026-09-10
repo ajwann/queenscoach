@@ -25,6 +25,8 @@
 # Flags:
 #   --non-interactive   never prompt; fail on anything missing
 #   --force-dns         overwrite an existing DNS record for the hostname
+#   --tunnel-login      authorise with a browser instead of an API token, for
+#                       when you cannot mint a token with tunnel write access
 #   --recreate-tunnel   rebuild a tunnel whose credentials are lost
 #   --uninstall         stop and remove everything this script installed
 
@@ -51,6 +53,7 @@ PORT="${CATS_HTTP_PORT:-8000}"
 INTERACTIVE=1
 FORCE_DNS=0
 RECREATE_TUNNEL=0
+TUNNEL_LOGIN=0
 UNINSTALL=0
 
 for arg in "$@"; do
@@ -58,6 +61,7 @@ for arg in "$@"; do
     --non-interactive) INTERACTIVE=0 ;;
     --force-dns)       FORCE_DNS=1 ;;
     --recreate-tunnel) RECREATE_TUNNEL=1 ;;
+    --tunnel-login)    TUNNEL_LOGIN=1 ;;
     --uninstall)       UNINSTALL=1 ;;
     -h|--help)         sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $arg (try --help)" >&2; exit 2 ;;
@@ -229,12 +233,28 @@ cat <<EOF
 
 EOF
 
-ask CLOUDFLARE_API_TOKEN "Cloudflare API token" secret
+if (( TUNNEL_LOGIN )); then
+  cat <<EOF
+
+    ${B}Browser authorisation${RST} instead of an API token. cloudflared will print
+    a URL; open it on any machine, sign in, and pick ${B}$ZONE${RST}. The certificate
+    it downloads authorises creating the tunnel and its DNS record, so no API
+    token is needed at all.
+
+EOF
+else
+  ask CLOUDFLARE_API_TOKEN "Cloudflare API token" secret
+fi
 
 # -- API token ---------------------------------------------------------------
 
 # Everything below this point changes the machine, so the token is proved out
 # first: a token that cannot do the job should cost nothing but a re-run.
+
+if (( TUNNEL_LOGIN )); then
+  step "Skipping the API token check"
+  info "authorising with a browser instead"
+else
 
 step "Checking the Cloudflare API token"
 
@@ -297,6 +317,8 @@ probe "/zones/$ZONE_ID/dns_records?per_page=1" >/dev/null \
   || die "this token cannot read DNS records for $ZONE (needs DNS: Edit, zone-level).
 $TOKEN_HELP"
 info "can manage DNS for $ZONE"
+
+fi
 
 # -- packages ----------------------------------------------------------------
 
@@ -361,6 +383,85 @@ install -d -o "$TUNNEL_USER" -g "$TUNNEL_USER" -m 700 "$TUNNEL_DIR"
 
 step "Creating the tunnel"
 
+if (( TUNNEL_LOGIN )); then
+  # cloudflared's own certificate authorises both creating a tunnel and adding
+  # its DNS record, so this whole path needs no API token.
+  CERT=/root/.cloudflared/cert.pem
+  if [[ -f $CERT ]]; then
+    info "reusing the existing cloudflared authorisation"
+  else
+    (( INTERACTIVE )) || die "--tunnel-login needs a browser and cannot run with --non-interactive"
+    cat <<EOF
+
+    cloudflared will print a URL. Open it on any machine, sign in, and
+    choose ${B}$ZONE${RST}. This window waits until you do.
+
+EOF
+    "$TUNNEL_BIN" tunnel login
+    [[ -f $CERT ]] || die "authorisation did not complete; no certificate at $CERT"
+    info "authorised"
+  fi
+
+  TUNNEL_ID="$("$TUNNEL_BIN" tunnel list --output json 2>/dev/null \
+    | python3 -c '
+import json, sys
+name = sys.argv[1]
+try:
+    tunnels = json.load(sys.stdin) or []
+except ValueError:
+    tunnels = []
+print(next((t["id"] for t in tunnels if t["name"] == name and not t.get("deleted_at")), ""))
+' "$TUNNEL_NAME")"
+
+  if [[ -n $TUNNEL_ID ]] && (( RECREATE_TUNNEL )); then
+    info "deleting the existing tunnel $TUNNEL_ID"
+    "$TUNNEL_BIN" tunnel delete -f "$TUNNEL_NAME" || true
+    rm -f "$TUNNEL_DIR/$TUNNEL_ID.json" "/root/.cloudflared/$TUNNEL_ID.json"
+    TUNNEL_ID=""
+  fi
+
+  if [[ -n $TUNNEL_ID ]]; then
+    [[ -f "$TUNNEL_DIR/$TUNNEL_ID.json" ]] || die \
+      "tunnel '$TUNNEL_NAME' ($TUNNEL_ID) exists but its credentials are not on this machine.
+    Cloudflare reveals the secret only at creation, so re-run with --recreate-tunnel."
+    info "reusing tunnel $TUNNEL_ID"
+  else
+    info "creating tunnel '$TUNNEL_NAME'"
+    "$TUNNEL_BIN" tunnel create "$TUNNEL_NAME" >/dev/null
+    TUNNEL_ID="$("$TUNNEL_BIN" tunnel list --output json \
+      | python3 -c '
+import json, sys
+name = sys.argv[1]
+print(next((t["id"] for t in json.load(sys.stdin) if t["name"] == name), ""))
+' "$TUNNEL_NAME")"
+    [[ -n $TUNNEL_ID ]] || die "cloudflared created no tunnel named $TUNNEL_NAME"
+    install -o "$TUNNEL_USER" -g "$TUNNEL_USER" -m 600 \
+      "/root/.cloudflared/$TUNNEL_ID.json" "$TUNNEL_DIR/$TUNNEL_ID.json"
+    info "created tunnel $TUNNEL_ID"
+  fi
+
+  # `route dns` succeeds silently when the record already points at this
+  # tunnel, and fails when some other record holds the name. Overwriting is
+  # asked for rather than assumed, matching the API path.
+  info "pointing $CATS_HOSTNAME at the tunnel"
+  ROUTE_ARGS=()
+  (( RECREATE_TUNNEL || FORCE_DNS )) && ROUTE_ARGS+=(--overwrite-dns)
+  # The ${a[@]+"${a[@]}"} form expands to nothing when the array is empty;
+  # a plain "${a[@]}" is an unbound-variable error under set -u before bash 4.4.
+  if ! "$TUNNEL_BIN" tunnel route dns ${ROUTE_ARGS[@]+"${ROUTE_ARGS[@]}"} \
+       "$TUNNEL_NAME" "$CATS_HOSTNAME" >/dev/null 2>&1; then
+    warn "$CATS_HOSTNAME already has a DNS record that is not this tunnel"
+    if confirm "Overwrite it?"; then
+      "$TUNNEL_BIN" tunnel route dns --overwrite-dns "$TUNNEL_NAME" "$CATS_HOSTNAME" >/dev/null \
+        || die "could not repoint $CATS_HOSTNAME at the tunnel"
+    else
+      die "leaving DNS alone; re-run with --force-dns or choose another hostname"
+    fi
+  fi
+  info "DNS points at the tunnel"
+
+else
+
 TUNNEL_ID="$(cf GET "/accounts/$ACCOUNT_ID/cfd_tunnel?name=$TUNNEL_NAME&is_deleted=false" \
   | cf_result "listing tunnels" | pyget 'd[0]["id"] if d else ""')"
 
@@ -397,6 +498,8 @@ with open(sys.argv[4], "w") as handle:
   info "created tunnel $TUNNEL_ID"
 fi
 
+fi
+
 cat > "$TUNNEL_DIR/config.yml" <<YAML
 # Written by queenscoach scripts/install.sh
 tunnel: $TUNNEL_ID
@@ -411,6 +514,9 @@ chown "$TUNNEL_USER:$TUNNEL_USER" "$TUNNEL_DIR/config.yml"
 info "wrote $TUNNEL_DIR/config.yml"
 
 # -- DNS ---------------------------------------------------------------------
+
+# In login mode `cloudflared tunnel route dns` already wrote the record.
+if (( ! TUNNEL_LOGIN )); then
 
 TARGET="$TUNNEL_ID.cfargotunnel.com"
 BODY="$(python3 -c '
@@ -440,6 +546,8 @@ else
       die "leaving DNS alone; re-run with --force-dns or choose another hostname"
     fi
   fi
+fi
+
 fi
 
 # -- configuration -----------------------------------------------------------
