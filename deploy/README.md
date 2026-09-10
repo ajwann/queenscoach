@@ -106,27 +106,37 @@ URI it expects at every startup.
 ## The Cloudflare API token
 
 [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
-→ **Create Token** → **Custom token**, with three permissions:
+→ **Create Token** → **Custom token**. Three permissions:
 
-| Permission | Why |
-| --- | --- |
-| Account → Cloudflare Tunnel → Edit | Create the tunnel |
-| Zone → DNS → Edit | The `CNAME` pointing at it |
-| Zone → Zone → Read | Find the zone id |
+| Permission | Level | Access | Why |
+| --- | --- | --- | --- |
+| Cloudflare Tunnel | Account | Edit | Create the tunnel |
+| DNS | Zone | Edit | The `CNAME` pointing at it |
+| Zone | Zone | Read | Find the zone id |
 
-Set **Zone Resources** to `Include → Specific zone → your domain` (or *All
-zones*). Getting the permissions right but leaving Zone Resources unset is the
-usual reason the install stops at `cannot see a zone named ...` — the token
-authenticates fine, it just has access to nothing.
+Cloudflare groups these by category in the picker rather than listing them
+flat — Cloudflare Tunnel sits under *Cloudflare One / Zero Trust*, and DNS and
+Zone under *DNS & Zones*. Searching the picker for the permission name is
+quicker than hunting through the groups.
 
-To check a token before or after a failed run:
+**Permissions alone are not enough.** Scope the token too, in the sections below
+the permission rows:
+
+- **Account Resources** → include your account
+- **Zone Resources** → `Include → Specific zone → your domain` (or *All zones*)
+
+An unscoped token authenticates perfectly and then sees nothing, which is the
+single most common reason the install stops.
+
+The script checks all of this before it touches the machine, and names the
+missing piece if something is wrong. To check a token by hand:
 
 ```bash
 curl -sS -H "Authorization: Bearer $TOKEN" \
   https://api.cloudflare.com/client/v4/zones | python3 -m json.tool
 ```
 
-An empty `result` means the token sees no zones at all.
+An empty `result` means the token sees no zones.
 
 The token is used only during the install and is **never written to disk** — the
 tunnel authenticates with its own credentials afterwards. You can delete the

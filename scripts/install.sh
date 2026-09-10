@@ -231,6 +231,73 @@ EOF
 
 ask CLOUDFLARE_API_TOKEN "Cloudflare API token" secret
 
+# -- API token ---------------------------------------------------------------
+
+# Everything below this point changes the machine, so the token is proved out
+# first: a token that cannot do the job should cost nothing but a re-run.
+
+step "Checking the Cloudflare API token"
+
+probe() { # probe PATH -> emits `result` on success, nothing on failure
+  local body
+  body="$(cf GET "$1" 2>/dev/null || true)"
+  printf '%s' "$body" | python3 -c '
+import json, sys
+try:
+    doc = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+if not doc.get("success"):
+    sys.exit(1)
+json.dump(doc.get("result"), sys.stdout)
+' 2>/dev/null
+}
+
+TOKEN_HELP="    Fix it at https://dash.cloudflare.com/profile/api-tokens (Create Token ->
+    Custom token). Cloudflare groups permissions by category; the three live
+    under 'Cloudflare One / Zero Trust' and 'DNS & Zones'. Search the picker
+    for the exact names below if the grouping is unfamiliar.
+
+      Cloudflare Tunnel   Edit    (account-level)
+      DNS                 Edit    (zone-level)
+      Zone                Read    (zone-level)
+
+    Then scope it: Account Resources must include your account, and Zone
+    Resources must be 'Include -> Specific zone -> $ZONE' (or 'All zones').
+    Permissions alone are not enough - an unscoped token sees nothing."
+
+probe "/user/tokens/verify" >/dev/null \
+  || die "Cloudflare rejected this token outright: it is mistyped, expired, or revoked."
+info "token is valid"
+
+ACCOUNT_ID="$(probe "/accounts?per_page=50" | pyget 'd[0]["id"] if d else ""')"
+[[ -n $ACCOUNT_ID ]] || die "this token can see no Cloudflare account.
+$TOKEN_HELP"
+info "account $ACCOUNT_ID"
+
+probe "/accounts/$ACCOUNT_ID/cfd_tunnel?per_page=1" >/dev/null \
+  || die "this token cannot manage tunnels (needs Cloudflare Tunnel: Edit, account-level).
+$TOKEN_HELP"
+info "can manage tunnels"
+
+ZONE_ID="$(probe "/zones?name=$ZONE" | pyget 'd[0]["id"] if d else ""')"
+if [[ -z $ZONE_ID ]]; then
+  VISIBLE="$(probe "/zones?per_page=50" | pyget '", ".join(z["name"] for z in d) if d else "(none)"')"
+  [[ -n $VISIBLE ]] || VISIBLE="(none)"
+  die "this token cannot see a zone named $ZONE.
+    Zones it can see: $VISIBLE
+
+    '(none)' means the Zone: Read permission or the zone scoping is missing.
+    A list without $ZONE means Zone Resources point at the wrong zone.
+$TOKEN_HELP"
+fi
+info "zone $ZONE_ID"
+
+probe "/zones/$ZONE_ID/dns_records?per_page=1" >/dev/null \
+  || die "this token cannot read DNS records for $ZONE (needs DNS: Edit, zone-level).
+$TOKEN_HELP"
+info "can manage DNS for $ZONE"
+
 # -- packages ----------------------------------------------------------------
 
 step "Installing packages"
@@ -293,31 +360,6 @@ install -d -o "$TUNNEL_USER" -g "$TUNNEL_USER" -m 700 "$TUNNEL_DIR"
 # -- the tunnel --------------------------------------------------------------
 
 step "Creating the tunnel"
-
-ACCOUNT_ID="$(cf GET "/accounts?per_page=50" | cf_result "listing accounts" \
-  | pyget 'd[0]["id"] if d else sys.exit("this token sees no accounts; add Account -> Cloudflare Tunnel -> Edit")')"
-info "account $ACCOUNT_ID"
-
-# An empty result here means the token authenticated but sees no such zone,
-# which is a different problem from the token being rejected. Report which
-# zones it can see, since that separates a missing permission (none) from a
-# mis-scoped one (some, but not this).
-ZONE_ID="$(cf GET "/zones?name=$ZONE" | cf_result "looking up the zone $ZONE" \
-  | pyget 'd[0]["id"] if d else ""')"
-if [[ -z $ZONE_ID ]]; then
-  VISIBLE="$(cf GET "/zones?per_page=50" | cf_result "listing zones" \
-    | pyget '", ".join(zone["name"] for zone in d) if d else "(none)"')"
-  die "this Cloudflare API token cannot see a zone named $ZONE.
-    Zones it can see: $VISIBLE
-
-    If that says (none), the token is missing Zone -> Zone -> Read.
-    If it lists other zones, the token's Zone Resources do not include $ZONE.
-
-    Edit the token at https://dash.cloudflare.com/profile/api-tokens and make
-    sure it has all three permissions, and that Zone Resources is
-    'Include -> Specific zone -> $ZONE' (or 'All zones')."
-fi
-info "zone $ZONE_ID"
 
 TUNNEL_ID="$(cf GET "/accounts/$ACCOUNT_ID/cfd_tunnel?name=$TUNNEL_NAME&is_deleted=false" \
   | cf_result "listing tunnels" | pyget 'd[0]["id"] if d else ""')"
