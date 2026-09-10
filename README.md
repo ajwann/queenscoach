@@ -1,3 +1,5 @@
+<!-- mcp-name: io.github.ajwann/queenscoach -->
+
 # queenscoach
 
 An MCP server for live **Charlotte Area Transit System (CATS)** bus and light rail data,

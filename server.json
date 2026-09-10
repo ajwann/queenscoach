@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ajwann/queenscoach",
+  "title": "Charlotte Area Transit (CATS)",
+  "description": "Live CATS bus and light rail positions and arrival predictions from the agency's GTFS-Realtime feeds",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/ajwann/queenscoach",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "queenscoach",
+      "version": "1.0.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
