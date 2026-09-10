@@ -126,7 +126,19 @@ json.dump(doc.get("result"), sys.stdout)
 ' "$1"
 }
 
-pyget() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+pyget() {
+  # Empty stdin means the upstream stage in the pipeline already failed and
+  # printed the real reason; exit quietly rather than burying it in a
+  # JSONDecodeError traceback.
+  python3 -c "
+import json, sys
+raw = sys.stdin.read()
+if not raw.strip():
+    sys.exit(1)
+d = json.loads(raw)
+print($1)
+"
+}
 
 # -- uninstall ---------------------------------------------------------------
 
