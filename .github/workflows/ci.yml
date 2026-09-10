@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # So the release workflow can gate a publish on this same suite.
+  workflow_call:
 
 permissions:
   contents: read
