@@ -310,3 +310,7 @@ for real.
 registration, `/authorize`, the Google callback, `/token`, then an authenticated
 `tools/list` - with Google's token endpoint replaced by a stub, so no account or network
 is needed.
+
+## License
+
+MIT - see [LICENSE](LICENSE).
