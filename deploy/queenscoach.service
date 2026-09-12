@@ -2,15 +2,15 @@
 # The server listens on loopback; the Cloudflare tunnel is the only way in.
 
 [Unit]
-Description=CATS transit MCP server
+Description=QueensCoach transit MCP server
 Documentation=https://github.com/ajwann/queenscoach
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=exec
-User=catsmcp
-Group=catsmcp
+User=queenscoach
+Group=queenscoach
 WorkingDirectory=/opt/queenscoach
 
 # Holds the Google client secret; root-owned, mode 0600.

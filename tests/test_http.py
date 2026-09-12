@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import json
+import time
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -13,15 +15,16 @@ import pytest
 from mcp.types import LATEST_PROTOCOL_VERSION
 from starlette.applications import Starlette
 
-from queenscoach.config import CATS_SCOPE, HttpConfig
+from queenscoach.config import QUEENSCOACH_SCOPE, ConfigError, HttpConfig
 from queenscoach.http import create_http_app
 from queenscoach.oauth import GoogleIdentity
+from queenscoach.token_store import MemoryTokenStore
 from queenscoach.tools import Dependencies
 
 from .conftest import fixture_deps
 from .test_oauth import ALLOWED, StubResolver, google_config
 
-PUBLIC_URL = "https://cats.test"
+PUBLIC_URL = "https://queenscoach.test"
 
 
 def http_config() -> HttpConfig:
@@ -93,7 +96,7 @@ async def test_authorization_server_metadata_advertises_dynamic_registration() -
     assert metadata["registration_endpoint"] == f"{PUBLIC_URL}/register"
     assert metadata["revocation_endpoint"] == f"{PUBLIC_URL}/revoke"
     assert metadata["code_challenge_methods_supported"] == ["S256"]
-    assert CATS_SCOPE in metadata["scopes_supported"]
+    assert QUEENSCOACH_SCOPE in metadata["scopes_supported"]
 
 
 async def test_the_google_callback_rejects_an_unknown_state() -> None:
@@ -152,7 +155,7 @@ async def _sign_in(client: httpx.AsyncClient, client_id: str) -> str:
             "response_type": "code",
             "code_challenge": CODE_CHALLENGE_VALUE,
             "code_challenge_method": "S256",
-            "scope": CATS_SCOPE,
+            "scope": QUEENSCOACH_SCOPE,
             "state": "client-state",
             "resource": f"{PUBLIC_URL}/mcp",
         },
@@ -256,7 +259,7 @@ async def test_a_denied_google_account_never_reaches_the_token_endpoint() -> Non
                 "response_type": "code",
                 "code_challenge": CODE_CHALLENGE_VALUE,
                 "code_challenge_method": "S256",
-                "scope": CATS_SCOPE,
+                "scope": QUEENSCOACH_SCOPE,
                 "state": "client-state",
             },
         )
@@ -278,3 +281,43 @@ async def test_a_request_dialled_at_the_public_hostname_is_not_misdirected() -> 
 
     # Rejected for want of a token, not for the Host header.
     assert response.status_code == 401
+
+
+# -- A hosted server that restarts and scales ------------------------------
+
+
+async def test_a_token_from_one_instance_opens_the_tools_on_another_sharing_its_store() -> None:
+    """What the Firestore store buys a hosted server: sign-ins outlive the instance."""
+    store = MemoryTokenStore(now=time.time)
+    config = dataclasses.replace(http_config(), stateless=True)
+
+    first = create_http_app(fixture_deps(), config, resolver=StubResolver(ALLOWED), store=store)
+    async with build_client_for(first) as client:
+        registration = await _register(client)
+        code = await _sign_in(client, registration["client_id"])
+        access_token = await _redeem(client, registration, code)
+
+    second = create_http_app(fixture_deps(), config, resolver=StubResolver(ALLOWED), store=store)
+    async with second.router.lifespan_context(second), build_client_for(second) as client:
+        # Stateless: straight to a tool listing, with no initialize and no session.
+        listed = await client.post(
+            "/mcp",
+            headers={**MCP_HEADERS, "authorization": f"Bearer {access_token}"},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        )
+
+    assert listed.status_code == 200, listed.text
+    assert "mcp-session-id" not in listed.headers
+    tools = _sse_payload(listed.text)["result"]["tools"]
+    assert {tool["name"] for tool in tools} == {"find_vehicle", "list_vehicles", "get_arrivals"}
+
+
+def test_a_firestore_store_without_credentials_refuses_to_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/credentials.json")
+    config = dataclasses.replace(http_config(), oauth_store="firestore")
+
+    with pytest.raises(ConfigError, match="no Google credentials"):
+        create_http_app(fixture_deps(), config, resolver=StubResolver(ALLOWED))

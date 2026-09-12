@@ -30,12 +30,12 @@ error will not point here.
 Change it later in `/etc/queenscoach.env` and restart:
 
 ```bash
-sudo nano /etc/queenscoach.env          # CATS_ALLOWED_EMAILS=...
+sudo nano /etc/queenscoach.env          # QUEENSCOACH_ALLOWED_EMAILS=...
 sudo systemctl restart queenscoach
 ```
 
-`CATS_ALLOWED_DOMAINS=example.com` admits every verified address on a domain
-instead, and `CATS_ALLOW_ANY_GOOGLE_ACCOUNT=true` admits everyone — that last
+`QUEENSCOACH_ALLOWED_DOMAINS=example.com` admits every verified address on a domain
+instead, and `QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT=true` admits everyone — that last
 one makes the server public to anyone who finds the URL.
 
 **Clone to your home directory, not `/opt`.** That first clone exists only to
@@ -69,7 +69,7 @@ server itself binds loopback and is unreachable except through the tunnel.
 | --- | --- |
 | Preflight | Root, apt, systemd, architecture, Python 3.11+ |
 | Packages | `git`, `curl`, `python3-venv` |
-| Code | Creates the `catsmcp` system user, clones to `/opt/queenscoach`, builds the venv |
+| Code | Creates the `queenscoach` system user, clones to `/opt/queenscoach`, builds the venv |
 | cloudflared | Downloads the binary for this architecture to `/usr/local/bin` |
 | Tunnel | Creates it over the API and writes credentials to `/etc/cloudflared` |
 | DNS | Proxied `CNAME` from your hostname to the tunnel |
@@ -80,7 +80,7 @@ server itself binds loopback and is unreachable except through the tunnel.
 Re-running is safe: it reuses the checkout, the tunnel, and the DNS record
 rather than recreating them. Updating is the same command.
 
-The two services run as separate unprivileged users — `catsmcp` for the server,
+The two services run as separate unprivileged users — `queenscoach` for the server,
 `cloudflared` for the tunnel — and neither can bind a privileged port.
 
 ## The one manual step
@@ -89,7 +89,7 @@ The two services run as separate unprivileged users — `catsmcp` for the server
 prints the exact redirect URI and waits:
 
 ```
-https://cats.awanninger.com/auth/google/callback
+https://queenscoach.example.com/auth/google/callback
 ```
 
 At [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials):
@@ -168,17 +168,17 @@ runs, so the browser step happens once.
 From anywhere:
 
 ```bash
-curl https://cats.awanninger.com/.well-known/oauth-protected-resource/mcp
+curl https://queenscoach.example.com/.well-known/oauth-protected-resource/mcp
 ```
 
 ```json
-{"resource":"https://cats.awanninger.com/mcp",
- "authorization_servers":["https://cats.awanninger.com"],
- "scopes_supported":["cats:read"],"bearer_methods_supported":["header"]}
+{"resource":"https://queenscoach.example.com/mcp",
+ "authorization_servers":["https://queenscoach.example.com"],
+ "scopes_supported":["queenscoach:read"],"bearer_methods_supported":["header"]}
 ```
 
 ```bash
-curl -i -X POST https://cats.awanninger.com/mcp \
+curl -i -X POST https://queenscoach.example.com/mcp \
   -H 'accept: application/json, text/event-stream' \
   -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
@@ -194,7 +194,7 @@ Custom connectors are account-level, so add it once and it appears on every
 signed-in device. **Settings → Connectors → Add custom connector**:
 
 ```
-https://cats.awanninger.com/mcp
+https://queenscoach.example.com/mcp
 ```
 
 Claude registers itself, opens Google, you approve. Requires a paid Claude plan.
@@ -204,7 +204,7 @@ Claude registers itself, opens Google, you approve. Requires a paid Claude plan.
 | Symptom | Cause |
 | --- | --- |
 | `redirect_uri_mismatch` | Google's URI differs from startup log line 3. |
-| "This Google account is not allowed" | Signed in with an address not in `CATS_ALLOWED_EMAILS`. |
+| "This Google account is not allowed" | Signed in with an address not in `QUEENSCOACH_ALLOWED_EMAILS`. |
 | Cloudflare error 1033 | The tunnel is down: `journalctl -u queenscoach-tunnel -n 50`. |
 | Cloudflare error 502 | The tunnel is up but the server is not: `journalctl -u queenscoach -n 50`. |
 | Times out entirely | DNS has not propagated, or the `CNAME` is not proxied. |

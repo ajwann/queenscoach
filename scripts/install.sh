@@ -17,9 +17,9 @@
 #
 # Usage:
 #   sudo scripts/install.sh
-#   sudo CATS_HOSTNAME=cats.example.com CLOUDFLARE_API_TOKEN=... \
-#        CATS_GOOGLE_CLIENT_ID=... CATS_GOOGLE_CLIENT_SECRET=... \
-#        CATS_ALLOWED_EMAILS=you@gmail.com,someone@example.com \
+#   sudo QUEENSCOACH_HOSTNAME=queenscoach.example.com CLOUDFLARE_API_TOKEN=... \
+#        QUEENSCOACH_GOOGLE_CLIENT_ID=... QUEENSCOACH_GOOGLE_CLIENT_SECRET=... \
+#        QUEENSCOACH_ALLOWED_EMAILS=you@gmail.com,someone@example.com \
 #        scripts/install.sh --non-interactive
 #
 # Flags:
@@ -38,7 +38,7 @@ readonly REPO="https://github.com/ajwann/queenscoach.git"
 
 readonly INSTALL_DIR=/opt/queenscoach
 readonly ENV_FILE=/etc/queenscoach.env
-readonly SERVICE_USER=catsmcp
+readonly SERVICE_USER=queenscoach
 readonly TUNNEL_USER=cloudflared
 readonly TUNNEL_DIR=/etc/cloudflared
 readonly TUNNEL_BIN=/usr/local/bin/cloudflared
@@ -48,7 +48,7 @@ readonly TUNNEL_UNIT=/etc/systemd/system/queenscoach-tunnel.service
 
 # Loopback only: the tunnel is the sole way in.
 readonly BIND=127.0.0.1
-PORT="${CATS_HTTP_PORT:-8000}"
+PORT="${QUEENSCOACH_HTTP_PORT:-8000}"
 
 INTERACTIVE=1
 FORCE_DNS=0
@@ -210,10 +210,10 @@ info "architecture $(uname -m)"
 
 step "Settings"
 
-ask CATS_HOSTNAME "Public hostname for the server (e.g. cats.awanninger.com)"
-[[ $CATS_HOSTNAME == *.*.* ]] || die "expected a subdomain like cats.example.com, got $CATS_HOSTNAME"
-ZONE="${CATS_HOSTNAME#*.}"
-PUBLIC_URL="https://$CATS_HOSTNAME"
+ask QUEENSCOACH_HOSTNAME "Public hostname for the server (e.g. queenscoach.example.com)"
+[[ $QUEENSCOACH_HOSTNAME == *.*.* ]] || die "expected a subdomain like queenscoach.example.com, got $QUEENSCOACH_HOSTNAME"
+ZONE="${QUEENSCOACH_HOSTNAME#*.}"
+PUBLIC_URL="https://$QUEENSCOACH_HOSTNAME"
 REDIRECT_URI="$PUBLIC_URL/auth/google/callback"
 info "zone $ZONE"
 
@@ -232,15 +232,15 @@ cat <<EOF
 
 EOF
 
-ask CATS_GOOGLE_CLIENT_ID "Google client ID"
-ask CATS_GOOGLE_CLIENT_SECRET "Google client secret" secret
-ask CATS_ALLOWED_EMAILS "Google address(es) allowed, comma-separated"
+ask QUEENSCOACH_GOOGLE_CLIENT_ID "Google client ID"
+ask QUEENSCOACH_GOOGLE_CLIENT_SECRET "Google client secret" secret
+ask QUEENSCOACH_ALLOWED_EMAILS "Google address(es) allowed, comma-separated"
 
 # Normalise to a bare comma-separated list: lowercased, de-duplicated, and
 # without the spaces a person naturally types after a comma. The server would
 # accept those, but keeping them out of the unit's EnvironmentFile avoids
 # depending on how systemd treats an unquoted value containing spaces.
-CATS_ALLOWED_EMAILS="$(python3 -c '
+QUEENSCOACH_ALLOWED_EMAILS="$(python3 -c '
 import sys
 entries = sys.argv[1].replace(",", " ").split()
 cleaned = dict.fromkeys(entry.strip().lower() for entry in entries if entry.strip())
@@ -248,8 +248,8 @@ for entry in cleaned:
     if "@" not in entry or entry.startswith("@") or entry.endswith("@"):
         sys.exit("not an email address: " + entry)
 print(",".join(cleaned))
-' "$CATS_ALLOWED_EMAILS")" || die "CATS_ALLOWED_EMAILS must be email addresses, comma-separated"
-info "allowing: ${CATS_ALLOWED_EMAILS//,/, }"
+' "$QUEENSCOACH_ALLOWED_EMAILS")" || die "QUEENSCOACH_ALLOWED_EMAILS must be email addresses, comma-separated"
+info "allowing: ${QUEENSCOACH_ALLOWED_EMAILS//,/, }"
 
 cat <<EOF
 
@@ -462,17 +462,17 @@ EOF
   # `route dns` succeeds silently when the record already points at this
   # tunnel, and fails when some other record holds the name. Overwriting is
   # asked for rather than assumed, matching the API path.
-  info "pointing $CATS_HOSTNAME at the tunnel"
+  info "pointing $QUEENSCOACH_HOSTNAME at the tunnel"
   ROUTE_ARGS=()
   (( RECREATE_TUNNEL || FORCE_DNS )) && ROUTE_ARGS+=(--overwrite-dns)
   # The ${a[@]+"${a[@]}"} form expands to nothing when the array is empty;
   # a plain "${a[@]}" is an unbound-variable error under set -u before bash 4.4.
   if ! "$TUNNEL_BIN" tunnel route dns ${ROUTE_ARGS[@]+"${ROUTE_ARGS[@]}"} \
-       "$TUNNEL_NAME" "$CATS_HOSTNAME" >/dev/null 2>&1; then
-    warn "$CATS_HOSTNAME already has a DNS record that is not this tunnel"
+       "$TUNNEL_NAME" "$QUEENSCOACH_HOSTNAME" >/dev/null 2>&1; then
+    warn "$QUEENSCOACH_HOSTNAME already has a DNS record that is not this tunnel"
     if confirm "Overwrite it?"; then
-      "$TUNNEL_BIN" tunnel route dns --overwrite-dns "$TUNNEL_NAME" "$CATS_HOSTNAME" >/dev/null \
-        || die "could not repoint $CATS_HOSTNAME at the tunnel"
+      "$TUNNEL_BIN" tunnel route dns --overwrite-dns "$TUNNEL_NAME" "$QUEENSCOACH_HOSTNAME" >/dev/null \
+        || die "could not repoint $QUEENSCOACH_HOSTNAME at the tunnel"
     else
       die "leaving DNS alone; re-run with --force-dns or choose another hostname"
     fi
@@ -525,7 +525,7 @@ tunnel: $TUNNEL_ID
 credentials-file: $TUNNEL_DIR/$TUNNEL_ID.json
 
 ingress:
-  - hostname: $CATS_HOSTNAME
+  - hostname: $QUEENSCOACH_HOSTNAME
     service: http://$BIND:$PORT
   - service: http_status:404
 YAML
@@ -542,25 +542,25 @@ BODY="$(python3 -c '
 import json, sys
 print(json.dumps({"type": "CNAME", "name": sys.argv[1], "content": sys.argv[2],
                   "proxied": True, "comment": "queenscoach"}))
-' "$CATS_HOSTNAME" "$TARGET")"
+' "$QUEENSCOACH_HOSTNAME" "$TARGET")"
 
-EXISTING="$(cf GET "/zones/$ZONE_ID/dns_records?name=$CATS_HOSTNAME" \
+EXISTING="$(cf GET "/zones/$ZONE_ID/dns_records?name=$QUEENSCOACH_HOSTNAME" \
   | cf_result "listing DNS records" | pyget 'json.dumps(d[0]) if d else ""')"
 
 if [[ -z $EXISTING ]]; then
   cf POST "/zones/$ZONE_ID/dns_records" "$BODY" | cf_result "creating the DNS record" >/dev/null
-  info "created CNAME $CATS_HOSTNAME -> $TARGET"
+  info "created CNAME $QUEENSCOACH_HOSTNAME -> $TARGET"
 else
   RECORD_ID="$(printf '%s' "$EXISTING" | pyget 'd["id"]')"
   CURRENT="$(printf '%s' "$EXISTING" | pyget 'd["type"] + " " + d["content"]')"
   if [[ $CURRENT == "CNAME $TARGET" ]]; then
     info "DNS already points at this tunnel"
   else
-    warn "$CATS_HOSTNAME currently resolves to: $CURRENT"
+    warn "$QUEENSCOACH_HOSTNAME currently resolves to: $CURRENT"
     if (( FORCE_DNS )) || confirm "Repoint it at the tunnel?"; then
       cf PUT "/zones/$ZONE_ID/dns_records/$RECORD_ID" "$BODY" \
         | cf_result "updating the DNS record" >/dev/null
-      info "repointed $CATS_HOSTNAME at the tunnel"
+      info "repointed $QUEENSCOACH_HOSTNAME at the tunnel"
     else
       die "leaving DNS alone; re-run with --force-dns or choose another hostname"
     fi
@@ -577,12 +577,12 @@ step "Writing configuration"
   cat > "$ENV_FILE" <<ENV_EOF
 # Written by queenscoach scripts/install.sh. Contains a secret: keep it mode 0600.
 # systemd parses this itself - no export, no quotes, no shell expansion.
-CATS_PUBLIC_URL=$PUBLIC_URL
-CATS_GOOGLE_CLIENT_ID=$CATS_GOOGLE_CLIENT_ID
-CATS_GOOGLE_CLIENT_SECRET=$CATS_GOOGLE_CLIENT_SECRET
-CATS_ALLOWED_EMAILS=$CATS_ALLOWED_EMAILS
-CATS_HTTP_HOST=$BIND
-CATS_HTTP_PORT=$PORT
+QUEENSCOACH_PUBLIC_URL=$PUBLIC_URL
+QUEENSCOACH_GOOGLE_CLIENT_ID=$QUEENSCOACH_GOOGLE_CLIENT_ID
+QUEENSCOACH_GOOGLE_CLIENT_SECRET=$QUEENSCOACH_GOOGLE_CLIENT_SECRET
+QUEENSCOACH_ALLOWED_EMAILS=$QUEENSCOACH_ALLOWED_EMAILS
+QUEENSCOACH_HTTP_HOST=$BIND
+QUEENSCOACH_HTTP_PORT=$PORT
 ENV_EOF
 )
 chmod 600 "$ENV_FILE"
@@ -675,7 +675,7 @@ ${GRN}==>${RST} ${B}Done.${RST}
 
     It is account-level, so it appears on your iPhone once added anywhere.
     Sign-in goes through Google. Only these accounts are admitted:
-      ${B}${CATS_ALLOWED_EMAILS//,/, }${RST}
+      ${B}${QUEENSCOACH_ALLOWED_EMAILS//,/, }${RST}
 
     ${DIM}logs      journalctl -u queenscoach -f${RST}
     ${DIM}tunnel    journalctl -u queenscoach-tunnel -f${RST}

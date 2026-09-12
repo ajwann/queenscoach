@@ -9,3 +9,6 @@ dist/
 .ruff_cache/
 *.log
 .env
+
+# Local working notes and prompts, never committed.
+*scratchpad*.md

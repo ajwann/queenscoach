@@ -7,6 +7,7 @@ shared - only the transport and its authentication differ.
 from __future__ import annotations
 
 import logging
+import time
 from urllib.parse import urlsplit
 
 import uvicorn
@@ -17,12 +18,43 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
-from .config import CATS_SCOPE, GOOGLE_CALLBACK_PATH, HttpConfig
+from .config import GOOGLE_CALLBACK_PATH, QUEENSCOACH_SCOPE, ConfigError, HttpConfig
 from .oauth import GoogleAuthError, GoogleAuthorizationServerProvider, GoogleIdentityResolver
 from .server import create_server
+from .token_store import TokenStore
 from .tools import Dependencies
 
 _logger = logging.getLogger(__name__)
+
+
+def _configured_token_store(config: HttpConfig) -> TokenStore | None:
+    """The store ``config`` asks for, or ``None`` for the provider's in-memory default.
+
+    Raises:
+        ConfigError: if Firestore is asked for but its library or credentials
+            are missing, so the server refuses to start rather than failing at
+            the first sign-in.
+    """
+    if config.oauth_store != "firestore":
+        return None
+    # Imported only here, so the stdio transport and in-memory deployments never
+    # need google-cloud-firestore (the ``gcp`` extra).
+    try:
+        from google.auth.exceptions import DefaultCredentialsError
+
+        from .token_store_firestore import connect
+    except ImportError as error:
+        raise ConfigError(
+            "QUEENSCOACH_TOKEN_STORE=firestore needs the gcp extra: pip install 'queenscoach[gcp]'"
+        ) from error
+    try:
+        store = connect(database=config.firestore_database, now=time.time)
+    except DefaultCredentialsError as error:
+        raise ConfigError(
+            f"QUEENSCOACH_TOKEN_STORE=firestore found no Google credentials: {error}"
+        ) from error
+    _logger.info("keeping OAuth state in Firestore database %s", config.firestore_database)
+    return store
 
 
 def _auth_settings(config: HttpConfig) -> AuthSettings:
@@ -33,9 +65,9 @@ def _auth_settings(config: HttpConfig) -> AuthSettings:
         # Tokens are minted here and always stamped with this resource, so the
         # bearer middleware can reject anything issued for somewhere else.
         validate_token_resource=True,
-        required_scopes=[CATS_SCOPE],
+        required_scopes=[QUEENSCOACH_SCOPE],
         client_registration_options=ClientRegistrationOptions(
-            enabled=True, valid_scopes=[CATS_SCOPE], default_scopes=[CATS_SCOPE]
+            enabled=True, valid_scopes=[QUEENSCOACH_SCOPE], default_scopes=[QUEENSCOACH_SCOPE]
         ),
         revocation_options=RevocationOptions(enabled=True),
     )
@@ -78,13 +110,18 @@ def create_http_server(
     config: HttpConfig,
     *,
     resolver: GoogleIdentityResolver | None = None,
+    store: TokenStore | None = None,
 ) -> MCPServer:
-    """Build the MCP server with OAuth and the Google callback route attached."""
+    """Build the MCP server with OAuth and the Google callback route attached.
+
+    ``store`` overrides the one ``config`` names, for tests.
+    """
     provider = GoogleAuthorizationServerProvider(
         config.google,
         callback_url=config.callback_url,
         resource_url=config.resource_url,
         resolver=resolver,
+        store=store if store is not None else _configured_token_store(config),
     )
     server = create_server(deps, auth=_auth_settings(config), auth_server_provider=provider)
 
@@ -115,10 +152,13 @@ def create_http_app(
     config: HttpConfig,
     *,
     resolver: GoogleIdentityResolver | None = None,
+    store: TokenStore | None = None,
 ) -> Starlette:
     """Build the ASGI app, for an external server or for tests."""
-    return create_http_server(deps, config, resolver=resolver).streamable_http_app(
+    server = create_http_server(deps, config, resolver=resolver, store=store)
+    return server.streamable_http_app(
         streamable_http_path=config.mcp_path,
+        stateless_http=config.stateless,
         host=config.host,
         transport_security=_transport_security(config),
     )
@@ -137,6 +177,8 @@ async def serve_http(deps: Dependencies, config: HttpConfig) -> None:
     _logger.info("google redirect URI must be registered as %s", config.callback_url)
     if not config.serves_tls:
         _logger.info("serving plain HTTP; a proxy or tunnel must terminate TLS")
+    if config.stateless:
+        _logger.info("serving stateless streamable HTTP: no MCP sessions are kept")
 
     settings = uvicorn.Config(
         create_http_app(deps, config),
