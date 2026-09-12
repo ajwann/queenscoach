@@ -170,9 +170,15 @@ retry() { # retry CMD...: IAM is eventually consistent, so a new account can lag
 }
 
 ensure_service_account() { # ensure_service_account NAME "Display name" -> email
-  local email="$1@$PROJECT.iam.gserviceaccount.com"
+  local email="$1@$PROJECT.iam.gserviceaccount.com" attempt
   if ! gp iam service-accounts describe "$email" >/dev/null 2>&1; then
     gp iam service-accounts create "$1" --display-name="$2" >/dev/null
+    # A new account is not visible everywhere at once. Until it is, granting it
+    # a role fails, and so does submitting a build that runs as it.
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      gp iam service-accounts describe "$email" >/dev/null 2>&1 && break
+      sleep 3
+    done
   fi
   printf '%s' "$email"
 }
@@ -602,11 +608,20 @@ images: ["$_IMAGE"]
 options:
   logging: CLOUD_LOGGING_ONLY
 YAML
+submit_build() {
+  gp builds submit "$REPO_ROOT" --region="$REGION" --config="$WORK/cloudbuild.yaml" \
+    --substitutions="_IMAGE=$IMAGE" \
+    --service-account="projects/$PROJECT/serviceAccounts/$BUILD_SA" --suppress-logs
+}
+
 info "building $IMAGE (a few minutes)"
-gp builds submit "$REPO_ROOT" --region="$REGION" --config="$WORK/cloudbuild.yaml" \
-  --substitutions="_IMAGE=$IMAGE" \
-  --service-account="projects/$PROJECT/serviceAccounts/$BUILD_SA" --suppress-logs \
-  || die "the build failed; see: gcloud builds list --region $REGION --project $PROJECT"
+if ! submit_build; then
+  # The first build in a new project can be refused while permission to act as
+  # the builder account is still spreading; that clears in well under a minute.
+  note "the build was refused; waiting for the builder's permissions, then trying once more"
+  sleep 30
+  submit_build || die "the build failed; see: gcloud builds list --region $REGION --project $PROJECT"
+fi
 info "built"
 
 # -- custom domain, when the service exists ----------------------------------
