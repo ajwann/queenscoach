@@ -9,6 +9,32 @@ built on the agency's public GTFS-Realtime feeds. It runs over **stdio**, launch
 the MCP client that uses it, or over **HTTP** with Google OAuth in front of it, for a
 hosted server. Both transports serve the same three tools.
 
+## Hosted server
+
+A public instance runs on Google Cloud Run. Sign in with any Google account:
+
+```
+https://cats.adamwanninger.com/mcp
+```
+
+In Claude, add it under **Settings → Connectors → Add custom connector**. In Claude
+Code:
+
+```bash
+claude mcp add --transport http cats https://cats.adamwanninger.com/mcp
+```
+
+**There is zero guarantee of uptime.** The hosted server is provided as-is. It may be
+slow, down, switched off by its spending cap, or retired without notice. For anything
+you rely on, run your own: over [stdio](#stdio), or on your own Google Cloud project
+with [`deploy/GCP.md`](deploy/GCP.md).
+
+Signing in tells the server your Google account's email address, which is used only
+to decide whether to admit you, and is never stored. The tokens it issues record
+your account's opaque Google ID and nothing else. The
+[privacy policy](https://adamwanninger.com/privacy/) and
+[terms of service](https://adamwanninger.com/terms/) cover the hosted server.
+
 ## Tools
 
 | Tool | Purpose |
@@ -169,6 +195,13 @@ user under `/opt`, a Cloudflare tunnel and its DNS record created over the API,
 both systemd units, and a verification pass. No port forwarding, so it works
 behind CGNAT or a locked router. See [`deploy/`](deploy/README.md).
 
+[`scripts/deploy-gcp.sh`](scripts/deploy-gcp.sh) does the same on **Google Cloud
+Run**, in your own GCP project: the project itself, Firestore for sign-ins, the
+client secret in Secret Manager, a container built by Cloud Build, a monthly
+budget with an optional hard spend cap, and the same verification pass. It scales
+to zero, so a personal server costs next to nothing. See
+[`deploy/GCP.md`](deploy/GCP.md).
+
 **Deployment notes.**
 
 - By default the server speaks plain HTTP and expects a tunnel or proxy to
@@ -177,9 +210,11 @@ behind CGNAT or a locked router. See [`deploy/`](deploy/README.md).
   deployment with nothing in front of it.
 - `CATS_PUBLIC_URL` is what clients dial and is this server's OAuth issuer
   identifier, so it must be the external URL, not the bind address.
-- Token state is in memory and therefore per-process: restarting invalidates
-  outstanding tokens, and running several replicas behind one hostname would need a
-  shared store instead.
+- Token state is in memory by default and therefore per-process: restarting
+  invalidates outstanding tokens. `CATS_TOKEN_STORE=firestore` keeps it in
+  Firestore instead (install the `gcp` extra: `pip install 'queenscoach[gcp]'`), so
+  sign-ins survive restarts and every instance shares them. Pair it with
+  `CATS_STATELESS_HTTP=true` so that any instance can answer any request.
 - Access tokens last an hour and refresh tokens 30 days, both rotated on refresh.
 
 ## Data sources
@@ -268,6 +303,9 @@ Read only when `--transport http` is selected.
 | `CATS_TLS_KEY` | `--tls-key` | — | PEM private key. Required with the above. |
 | `CATS_ACCESS_TOKEN_TTL_MS` | | `3600000` | Access token lifetime. |
 | `CATS_REFRESH_TOKEN_TTL_MS` | | `2592000000` | Refresh token lifetime. |
+| `CATS_TOKEN_STORE` | | `memory` | `memory`, or `firestore` (needs the `gcp` extra). |
+| `CATS_FIRESTORE_DATABASE` | | `(default)` | Firestore database for the token store. |
+| `CATS_STATELESS_HTTP` | | `false` | Serve without MCP sessions, for restarts and multiple instances. |
 
 One of the three allow-list settings is required; see above.
 
@@ -285,17 +323,20 @@ One of the three allow-list settings is required; see above.
 | `tools.py` | The three tools' behavior and JSON payloads |
 | `server.py` | MCP tool registration and schemas |
 | `oauth.py` | OAuth authorization server, with Google as the login |
+| `token_store.py` | Where OAuth state is kept, and the in-memory default |
+| `token_store_firestore.py` | The Firestore token store (the `gcp` extra only) |
 | `http.py` | Streamable HTTP transport and the Google callback route |
 | `main.py` | CLI entry point and transport selection |
 
 Plus [`scripts/install.sh`](scripts/install.sh), which deploys the HTTP
-transport onto a Debian host.
+transport onto a Debian host, and [`scripts/deploy-gcp.sh`](scripts/deploy-gcp.sh)
+with the [`Dockerfile`](Dockerfile), which deploy it to Google Cloud Run.
 
 ## Development
 
 ```bash
 .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest        # 130 tests, offline against recorded feed fixtures
+.venv/bin/pytest        # offline, against recorded feed fixtures
 .venv/bin/mypy          # strict
 .venv/bin/ruff check .
 .venv/bin/ruff format .
@@ -310,6 +351,12 @@ for real.
 registration, `/authorize`, the Google callback, `/token`, then an authenticated
 `tools/list` - with Google's token endpoint replaced by a stub, so no account or network
 is needed.
+
+`tests/test_token_store.py` runs every token-store test against both stores. The
+Firestore half needs the emulator (`gcloud emulators firestore start`, then set
+`FIRESTORE_EMULATOR_HOST`) and is skipped without it. `tests/test_stdio.py` starts the
+real stdio server in a child process; CI also runs it against a plain `pip install .`,
+to prove stdio needs none of the optional extras.
 
 ## License
 

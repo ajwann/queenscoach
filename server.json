@@ -3,7 +3,8 @@
   "name": "io.github.ajwann/queenscoach",
   "title": "Charlotte Area Transit (CATS)",
   "description": "Live CATS bus and light rail positions and arrival predictions from the agency's GTFS-Realtime feeds",
-  "version": "1.0.1",
+  "version": "1.1.0",
+  "websiteUrl": "https://github.com/ajwann/queenscoach",
   "repository": {
     "url": "https://github.com/ajwann/queenscoach",
     "source": "github"
@@ -12,11 +13,17 @@
     {
       "registryType": "pypi",
       "identifier": "queenscoach",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
       }
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://cats.adamwanninger.com/mcp"
     }
   ]
 }
