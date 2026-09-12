@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import json
+import time
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -13,9 +15,10 @@ import pytest
 from mcp.types import LATEST_PROTOCOL_VERSION
 from starlette.applications import Starlette
 
-from queenscoach.config import CATS_SCOPE, HttpConfig
+from queenscoach.config import CATS_SCOPE, ConfigError, HttpConfig
 from queenscoach.http import create_http_app
 from queenscoach.oauth import GoogleIdentity
+from queenscoach.token_store import MemoryTokenStore
 from queenscoach.tools import Dependencies
 
 from .conftest import fixture_deps
@@ -278,3 +281,43 @@ async def test_a_request_dialled_at_the_public_hostname_is_not_misdirected() -> 
 
     # Rejected for want of a token, not for the Host header.
     assert response.status_code == 401
+
+
+# -- A hosted server that restarts and scales ------------------------------
+
+
+async def test_a_token_from_one_instance_opens_the_tools_on_another_sharing_its_store() -> None:
+    """What the Firestore store buys a hosted server: sign-ins outlive the instance."""
+    store = MemoryTokenStore(now=time.time)
+    config = dataclasses.replace(http_config(), stateless=True)
+
+    first = create_http_app(fixture_deps(), config, resolver=StubResolver(ALLOWED), store=store)
+    async with build_client_for(first) as client:
+        registration = await _register(client)
+        code = await _sign_in(client, registration["client_id"])
+        access_token = await _redeem(client, registration, code)
+
+    second = create_http_app(fixture_deps(), config, resolver=StubResolver(ALLOWED), store=store)
+    async with second.router.lifespan_context(second), build_client_for(second) as client:
+        # Stateless: straight to a tool listing, with no initialize and no session.
+        listed = await client.post(
+            "/mcp",
+            headers={**MCP_HEADERS, "authorization": f"Bearer {access_token}"},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        )
+
+    assert listed.status_code == 200, listed.text
+    assert "mcp-session-id" not in listed.headers
+    tools = _sse_payload(listed.text)["result"]["tools"]
+    assert {tool["name"] for tool in tools} == {"find_vehicle", "list_vehicles", "get_arrivals"}
+
+
+def test_a_firestore_store_without_credentials_refuses_to_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/credentials.json")
+    config = dataclasses.replace(http_config(), oauth_store="firestore")
+
+    with pytest.raises(ConfigError, match="no Google credentials"):
+        create_http_app(fixture_deps(), config, resolver=StubResolver(ALLOWED))

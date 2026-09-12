@@ -338,12 +338,12 @@ async def test_an_unknown_token_is_not_accepted() -> None:
 
 
 async def test_client_registrations_are_bounded_by_evicting_the_oldest() -> None:
-    from queenscoach.oauth import _MAX_CLIENTS
+    from queenscoach.token_store import MAX_CLIENTS
 
     provider, _ = make_provider()
-    for index in range(_MAX_CLIENTS + 1):
+    for index in range(MAX_CLIENTS + 1):
         await provider.register_client(client(f"client-{index}"))
 
     # The newest is still usable and the oldest made room for it.
-    assert await provider.get_client(f"client-{_MAX_CLIENTS}") is not None
+    assert await provider.get_client(f"client-{MAX_CLIENTS}") is not None
     assert await provider.get_client("client-0") is None

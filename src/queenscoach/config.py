@@ -68,6 +68,12 @@ _DEFAULT_REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 Transport = Literal["stdio", "http"]
 TRANSPORTS: tuple[Transport, ...] = ("stdio", "http")
 
+#: Where the HTTP transport keeps OAuth state; see :mod:`queenscoach.token_store`.
+TokenStoreKind = Literal["memory", "firestore"]
+TOKEN_STORES: tuple[TokenStoreKind, ...] = ("memory", "firestore")
+
+_DEFAULT_FIRESTORE_DATABASE = "(default)"
+
 
 class ConfigError(Exception):
     """Raised when an environment override cannot be used."""
@@ -208,6 +214,13 @@ class HttpConfig:
     #: HTTP and something else is expected to terminate TLS.
     tls_certfile: str | None = None
     tls_keyfile: str | None = None
+    #: ``memory`` keeps OAuth state in this process, so a restart signs
+    #: everyone out; ``firestore`` shares it across restarts and instances.
+    oauth_store: TokenStoreKind = "memory"
+    firestore_database: str = _DEFAULT_FIRESTORE_DATABASE
+    #: Serve Streamable HTTP without sessions, so any instance can answer any
+    #: request and a restart strands no connected client.
+    stateless: bool = False
 
     @property
     def serves_tls(self) -> bool:
@@ -386,6 +399,12 @@ def load_http_config(
             f"{missing} must be set too: serving TLS needs both a certificate and a key"
         )
 
+    store_kind = (env.get("CATS_TOKEN_STORE") or "").strip().lower() or "memory"
+    if store_kind not in TOKEN_STORES:
+        raise ConfigError(
+            f"CATS_TOKEN_STORE must be one of {', '.join(TOKEN_STORES)}, got {store_kind!r}"
+        )
+
     return HttpConfig(
         host=resolved_host,
         port=resolved_port,
@@ -394,6 +413,10 @@ def load_http_config(
         google=google,
         tls_certfile=certfile,
         tls_keyfile=keyfile,
+        oauth_store=store_kind,
+        firestore_database=(env.get("CATS_FIRESTORE_DATABASE") or "").strip()
+        or _DEFAULT_FIRESTORE_DATABASE,
+        stateless=_read_flag(env, "CATS_STATELESS_HTTP"),
     )
 
 

@@ -133,6 +133,8 @@ def test_every_google_account_is_admitted_only_by_an_explicit_opt_in() -> None:
         {"CATS_HTTP_PORT": "70000"},
         {"CATS_PUBLIC_URL": "ftp://cats.test"},
         {"CATS_ALLOW_ANY_GOOGLE_ACCOUNT": "maybe"},
+        {"CATS_TOKEN_STORE": "redis"},
+        {"CATS_STATELESS_HTTP": "sometimes"},
     ],
 )
 def test_rejects_malformed_http_settings(env: dict[str, str]) -> None:
@@ -207,3 +209,27 @@ def test_an_unreadable_certificate_is_reported_at_startup(tmp_path: Path) -> Non
         pytest.skip("root reads any file, so an unreadable key cannot be simulated")
     with pytest.raises(ConfigError, match="cannot be read"):
         load_http_config({**env, "CATS_TLS_CERT": str(cert), "CATS_TLS_KEY": str(key)})
+
+
+# -- Token store and sessions ------------------------------------------------
+
+
+def test_tokens_stay_in_memory_with_sessions_by_default() -> None:
+    config = load_http_config(GOOGLE_ENV)
+    assert config.oauth_store == "memory"
+    assert config.firestore_database == "(default)"
+    assert config.stateless is False
+
+
+def test_a_hosted_server_can_keep_tokens_in_firestore_and_serve_without_sessions() -> None:
+    config = load_http_config(
+        {
+            **GOOGLE_ENV,
+            "CATS_TOKEN_STORE": "Firestore",
+            "CATS_FIRESTORE_DATABASE": "cats",
+            "CATS_STATELESS_HTTP": "true",
+        }
+    )
+    assert config.oauth_store == "firestore"
+    assert config.firestore_database == "cats"
+    assert config.stateless is True
