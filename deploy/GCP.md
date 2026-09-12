@@ -37,7 +37,7 @@ and passing `--non-interactive` makes it run unattended.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `QUEENSCOACH_GCP_PROJECT` | the project labeled `app=queenscoach`, else a new `queenscoach-xxxxxx` | |
+| `QUEENSCOACH_GCP_PROJECT` | the project labeled `app=queenscoach`, else a new `queenscoach-xxxxxx` | Point it at an existing project to deploy there; see [several servers in one project](#several-servers-in-one-project). |
 | `QUEENSCOACH_GCP_REGION` | `us-east1` | Must be a region with Cloud Run, Firestore, and Artifact Registry. |
 | `QUEENSCOACH_GCP_SERVICE` | `queenscoach` | Cloud Run service name; part of the URL. |
 | `QUEENSCOACH_GCP_BILLING_ACCOUNT` | the only open billing account | Asked for when there are several. |
@@ -99,8 +99,8 @@ secret.
 | Billing | Links the billing account |
 | APIs | Cloud Run, Cloud Build, Artifact Registry, Firestore, Secret Manager, Budgets |
 | OAuth client | Prints the links and redirect URI, then asks for the ID and secret |
-| Firestore | Native-mode database in the region, with TTL policies on every token collection |
-| Secret | `queenscoach-google-client-secret` in Secret Manager; a new version only when it changes |
+| Firestore | A Native-mode database named after the service, with TTL policies on every token collection |
+| Secret | `<service>-google-client-secret` in Secret Manager; a new version only when it changes |
 | IAM | A runtime service account that can reach only Firestore and that one secret |
 | Registry | A Docker repository that keeps the three newest images |
 | Build | Cloud Build builds the `Dockerfile`, tagged with the git commit |
@@ -165,6 +165,40 @@ Things to know:
   to sign in again, and the OAuth client needs the new redirect URI.
 - To go back to `run.app`, re-run without `QUEENSCOACH_DOMAIN`, then delete the mapping
   in the console (**Cloud Run → Domain mappings**).
+
+## Several servers in one project
+
+Each server normally gets a project of its own, which keeps its budget, its
+sign-ins, and its blast radius separate. To put several in one project instead,
+pass `QUEENSCOACH_GCP_PROJECT`. Everything the script creates is then named after
+the service, so they do not collide:
+
+| Resource | Name |
+| --- | --- |
+| Cloud Run service | `$QUEENSCOACH_GCP_SERVICE` |
+| Firestore database | the same name, **not** `(default)` |
+| Secret | `<service>-google-client-secret` |
+| Artifact Registry | `<service>` |
+| Service accounts | `<service>-run`, `<service>-build`, `<service>-spendcap` |
+| Pub/Sub topic | `<service>-budget` |
+
+The database matters most: the token collections have fixed names, so two
+servers sharing one database would also share each other's registered clients
+and tokens.
+
+Two things do not separate, because Google Cloud does not separate them:
+
+- **The budget covers the whole project.** Each server's run creates its own
+  budget, and every one of them measures total project spend. Two servers with a
+  $5 budget each alert when the project reaches $5, not $10.
+- **The spend cap unlinks billing for the project.** It takes down every server
+  in it, not just the one that spent the money.
+
+If either matters, give the server its own project.
+
+`--teardown` refuses to delete a project that is not labelled `app=queenscoach`,
+which is exactly the case for a shared project you created yourself. Remove
+those by hand, deliberately.
 
 ## Cost
 

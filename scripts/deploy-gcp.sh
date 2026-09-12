@@ -53,8 +53,6 @@ readonly SCRIPT_DIR REPO_ROOT
 
 readonly LABEL_KEY=app
 readonly LABEL_VALUE=queenscoach
-readonly SECRET_NAME=queenscoach-google-client-secret
-readonly REPOSITORY=queenscoach
 # Must match the collection names in src/queenscoach/token_store_firestore.py.
 readonly TOKEN_COLLECTIONS="oauth_clients oauth_pending oauth_codes oauth_access_tokens oauth_refresh_tokens"
 # Google's service account that publishes budget notifications to Pub/Sub.
@@ -66,6 +64,14 @@ SERVICE="${QUEENSCOACH_GCP_SERVICE:-queenscoach}"
 MAX_INSTANCES="${QUEENSCOACH_GCP_MAX_INSTANCES:-1}"
 BUDGET_USD="${QUEENSCOACH_BUDGET_USD:-5}"
 SPEND_CAP_AT="${QUEENSCOACH_SPEND_CAP_AT:-0.8}"
+
+# Named after the service rather than fixed, so one project can hold several
+# servers without them sharing a secret, an image repository, or - which would
+# mix up their sign-ins - the same Firestore collections.
+SECRET_NAME="$SERVICE-google-client-secret"
+REPOSITORY="$SERVICE"
+FIRESTORE_DATABASE="$SERVICE"
+readonly SECRET_NAME REPOSITORY FIRESTORE_DATABASE
 
 INTERACTIVE=1
 TEARDOWN=0
@@ -431,12 +437,11 @@ if [[ -z $PROJECT_STATE ]]; then
     --labels="$LABEL_KEY=$LABEL_VALUE" --quiet >/dev/null
   info "created project $PROJECT"
 elif [[ "$(gcloud projects describe "$PROJECT" --format="value(labels.$LABEL_KEY)")" != "$LABEL_VALUE" ]]; then
-  # Labeled so later runs find it without QUEENSCOACH_GCP_PROJECT. Changing a
-  # project's labels is beta-only in older gcloud releases, so this is best
-  # effort: without the beta component the project is simply left unlabeled.
-  gcloud beta projects update "$PROJECT" --update-labels="$LABEL_KEY=$LABEL_VALUE" \
-      --quiet >/dev/null 2>&1 \
-    || warn "could not label $PROJECT $LABEL_KEY=$LABEL_VALUE; set QUEENSCOACH_GCP_PROJECT=$PROJECT on later runs"
+  # A project the script did not create keeps its own labels: it may hold other
+  # servers. The label is only how a later run finds a project this made, and
+  # --teardown refuses to delete anything that is not labelled, which is what
+  # protects a shared project.
+  note "$PROJECT is not labeled $LABEL_KEY=$LABEL_VALUE; pass QUEENSCOACH_GCP_PROJECT=$PROJECT on later runs"
 fi
 
 if [[ $LINKED == "$BILLING" && $BILLING_ENABLED == True ]]; then
@@ -518,18 +523,19 @@ info "client $QUEENSCOACH_GOOGLE_CLIENT_ID"
 
 step "Firestore"
 
-if gp firestore databases describe --database='(default)' >/dev/null 2>&1; then
-  info "database exists"
+if gp firestore databases describe --database="$FIRESTORE_DATABASE" >/dev/null 2>&1; then
+  info "database $FIRESTORE_DATABASE exists"
 else
-  gp firestore databases create --database='(default)' --location="$REGION" \
+  gp firestore databases create --database="$FIRESTORE_DATABASE" --location="$REGION" \
     --type=firestore-native >/dev/null
-  info "created the database in $REGION"
+  info "created database $FIRESTORE_DATABASE in $REGION"
 fi
 for group in $TOKEN_COLLECTIONS; do
   state="$(gp firestore indexes fields describe expires --collection-group="$group" \
-    --format='value(ttlConfig.state)' 2>/dev/null || true)"
+    --database="$FIRESTORE_DATABASE" --format='value(ttlConfig.state)' 2>/dev/null || true)"
   [[ -n $state ]] && continue
-  gp firestore fields ttls update expires --collection-group="$group" --enable-ttl --async >/dev/null
+  gp firestore fields ttls update expires --collection-group="$group" \
+    --database="$FIRESTORE_DATABASE" --enable-ttl --async >/dev/null
 done
 info "TTL policies expire every token collection"
 
@@ -629,6 +635,7 @@ QUEENSCOACH_ALLOWED_EMAILS: "$EMAILS"
 QUEENSCOACH_ALLOWED_DOMAINS: "$DOMAINS"
 QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT: "$ALLOW_ANY"
 QUEENSCOACH_TOKEN_STORE: "firestore"
+QUEENSCOACH_FIRESTORE_DATABASE: "$FIRESTORE_DATABASE"
 QUEENSCOACH_STATELESS_HTTP: "true"
 YAML
 # --allow-unauthenticated lets requests reach the app; the app's own OAuth
