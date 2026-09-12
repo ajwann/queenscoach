@@ -113,8 +113,20 @@ alerts affecting the stop or its routes are attached when present.
 Requires Python 3.11+.
 
 ```bash
+pip install queenscoach
+```
+
+Or run it without installing anything, which is how most MCP clients launch it:
+
+```bash
+uvx queenscoach
+```
+
+From a clone instead, to hack on it or to run the HTTP transport from source:
+
+```bash
 python3 -m venv .venv
-.venv/bin/pip install .
+.venv/bin/pip install .          # '.[gcp]' adds the Firestore token store
 ```
 
 ## Transports
@@ -134,7 +146,7 @@ the process.
 Register it with Claude Code:
 
 ```bash
-claude mcp add queenscoach -- /absolute/path/to/queenscoach/.venv/bin/queenscoach
+claude mcp add queenscoach -- uvx queenscoach
 ```
 
 Or in an MCP client config file:
@@ -143,14 +155,17 @@ Or in an MCP client config file:
 {
   "mcpServers": {
     "queenscoach": {
-      "command": "/absolute/path/to/queenscoach/.venv/bin/queenscoach"
+      "command": "uvx",
+      "args": ["queenscoach"]
     }
   }
 }
 ```
 
-`python -m queenscoach` runs the same server, so any interpreter with the package
-installed works as the command.
+An installed copy works just as well, given an absolute path
+(`/absolute/path/to/.venv/bin/queenscoach`): MCP clients rarely share your shell's
+`PATH`. `python -m queenscoach` runs the same server, so any interpreter with the
+package installed works as the command.
 
 stdout carries MCP protocol traffic only; all diagnostics go to stderr.
 
