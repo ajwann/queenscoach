@@ -1,13 +1,13 @@
 <!-- mcp-name: io.github.ajwann/queenscoach -->
 
-# queenscoach
+# QueensCoach ♔
 
 [![CI](https://github.com/ajwann/queenscoach/actions/workflows/ci.yml/badge.svg)](https://github.com/ajwann/queenscoach/actions/workflows/ci.yml)
 
-An MCP server for live **Charlotte Area Transit System (CATS)** bus and light rail data,
-built on the agency's public GTFS-Realtime feeds. It runs over **stdio**, launched by
-the MCP client that uses it, or over **HTTP** with Google OAuth in front of it, for a
-hosted server. Both transports serve the same three tools.
+**QueensCoach** is an MCP server for live **Charlotte Area Transit System (CATS)** bus
+and light rail data, built on the agency's public GTFS-Realtime feeds. It runs over
+**stdio**, launched by the MCP client that uses it, or over **HTTP** with Google OAuth
+in front of it, for a hosted server. Both transports serve the same three tools.
 
 ## Hosted server
 
@@ -17,13 +17,6 @@ A public instance runs on Google Cloud Run. Sign in with any Google account:
 https://queenscoach.adamwanninger.com/mcp
 ```
 
-In Claude, add it under **Settings → Connectors → Add custom connector**. In Claude
-Code:
-
-```bash
-claude mcp add --transport http queenscoach https://queenscoach.adamwanninger.com/mcp
-```
-
 **There is zero guarantee of uptime.** The hosted server is provided as-is. It may be
 slow, down, switched off by its spending cap, or retired without notice. For anything
 you rely on, run your own: over [stdio](#stdio), or on your own Google Cloud project
@@ -31,9 +24,45 @@ with [`deploy/GCP.md`](deploy/GCP.md).
 
 Signing in tells the server your Google account's email address, which is used only
 to decide whether to admit you, and is never stored. The tokens it issues record
-your account's opaque Google ID and nothing else. The
+your account's opaque Google ID and nothing else about you. The
 [privacy policy](https://adamwanninger.com/privacy/) and
 [terms of service](https://adamwanninger.com/terms/) cover the hosted server.
+
+### Adding it to Claude
+
+Claude calls a remote MCP server a **connector**. Custom connectors are available on
+Claude's paid plans.
+
+1. Open **Settings → Connectors**. On the web that's
+   [claude.ai/settings/connectors](https://claude.ai/settings/connectors); in the
+   desktop app, Settings then Connectors.
+2. Click **Add custom connector** at the bottom of the list.
+3. Give it a name, `QueensCoach`, and paste the URL above as the remote MCP server
+   URL. Leave the advanced OAuth fields empty: this server registers your client
+   automatically.
+4. Click **Add**, then **Connect** on the connector that appears. A browser window
+   opens for the Google sign-in; approve it and it closes itself.
+5. In a chat, open the tools menu and check that QueensCoach is enabled. Its three
+   tools then appear.
+
+The connector belongs to your Claude account, so it follows you across web, desktop,
+and mobile. To disconnect, remove it from that same Connectors page; that revokes the
+tokens this server issued.
+
+### Adding it to Claude Code
+
+```bash
+claude mcp add --transport http queenscoach https://queenscoach.adamwanninger.com/mcp
+```
+
+Then run `/mcp`, pick `queenscoach`, and choose **Authenticate**, which opens the same
+Google sign-in. `/mcp` shows the connection's state afterwards. A server added this way
+loads when Claude Code next starts.
+
+### Any other client
+
+Any MCP client that supports remote servers over streamable HTTP with OAuth works:
+give it the same URL and it discovers the rest.
 
 ## Tools
 
@@ -145,8 +174,8 @@ checked against the allow list, and only then does this server mint its own toke
 Google's tokens are never handed to the client.
 
 **One-time setup in Google Cloud.** At
-[console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials),
-create an **OAuth client ID** of type **Web application** and add one authorized
+[console.cloud.google.com/auth/clients](https://console.cloud.google.com/auth/clients),
+create an **OAuth client** of type **Web application** and add one authorized
 redirect URI:
 
 ```
