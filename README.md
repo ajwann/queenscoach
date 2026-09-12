@@ -14,14 +14,14 @@ hosted server. Both transports serve the same three tools.
 A public instance runs on Google Cloud Run. Sign in with any Google account:
 
 ```
-https://cats.adamwanninger.com/mcp
+https://queenscoach.adamwanninger.com/mcp
 ```
 
 In Claude, add it under **Settings → Connectors → Add custom connector**. In Claude
 Code:
 
 ```bash
-claude mcp add --transport http cats https://cats.adamwanninger.com/mcp
+claude mcp add --transport http queenscoach https://queenscoach.adamwanninger.com/mcp
 ```
 
 **There is zero guarantee of uptime.** The hosted server is provided as-is. It may be
@@ -90,7 +90,7 @@ python3 -m venv .venv
 
 ## Transports
 
-Pick one with `--transport` or `CATS_TRANSPORT`; the default is `stdio`.
+Pick one with `--transport` or `QUEENSCOACH_TRANSPORT`; the default is `stdio`.
 
 ```bash
 queenscoach                                  # stdio (default)
@@ -105,7 +105,7 @@ the process.
 Register it with Claude Code:
 
 ```bash
-claude mcp add cats -- /absolute/path/to/queenscoach/.venv/bin/queenscoach
+claude mcp add queenscoach -- /absolute/path/to/queenscoach/.venv/bin/queenscoach
 ```
 
 Or in an MCP client config file:
@@ -113,7 +113,7 @@ Or in an MCP client config file:
 ```json
 {
   "mcpServers": {
-    "cats": {
+    "queenscoach": {
       "command": "/absolute/path/to/queenscoach/.venv/bin/queenscoach"
     }
   }
@@ -153,29 +153,29 @@ redirect URI:
 https://your-public-url/auth/google/callback
 ```
 
-It must match `CATS_PUBLIC_URL` exactly. The server logs the URI it expects at startup.
+It must match `QUEENSCOACH_PUBLIC_URL` exactly. The server logs the URI it expects at startup.
 Copy the client ID and secret into the environment below.
 
 **Run it.** `.env.example` lists every setting; the shell form is:
 
 ```bash
-export CATS_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
-export CATS_GOOGLE_CLIENT_SECRET=...
-export CATS_ALLOWED_EMAILS=you@example.com
-export CATS_PUBLIC_URL=https://cats.example.com
+export QUEENSCOACH_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+export QUEENSCOACH_GOOGLE_CLIENT_SECRET=...
+export QUEENSCOACH_ALLOWED_EMAILS=you@example.com
+export QUEENSCOACH_PUBLIC_URL=https://queenscoach.example.com
 
 queenscoach --transport http --port 8000
 ```
 
-Then point a client at `https://cats.example.com/mcp`; it discovers the rest and opens
+Then point a client at `https://queenscoach.example.com/mcp`; it discovers the rest and opens
 a browser for the Google sign-in. In Claude Code:
 
 ```bash
-claude mcp add --transport http cats https://cats.example.com/mcp
+claude mcp add --transport http queenscoach https://queenscoach.example.com/mcp
 ```
 
-**Access is denied by default.** Startup fails unless `CATS_ALLOWED_EMAILS`,
-`CATS_ALLOWED_DOMAINS`, or an explicit `CATS_ALLOW_ANY_GOOGLE_ACCOUNT=true` says who
+**Access is denied by default.** Startup fails unless `QUEENSCOACH_ALLOWED_EMAILS`,
+`QUEENSCOACH_ALLOWED_DOMAINS`, or an explicit `QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT=true` says who
 may get in, so a misconfigured deployment is unreachable rather than open to every
 Google account on the internet. Unverified Google addresses are always refused.
 
@@ -206,15 +206,15 @@ to zero, so a personal server costs next to nothing. See
 
 - By default the server speaks plain HTTP and expects a tunnel or proxy to
   terminate TLS, which is what the install script sets up. Setting
-  `CATS_TLS_CERT` and `CATS_TLS_KEY` instead makes it serve HTTPS itself, for a
+  `QUEENSCOACH_TLS_CERT` and `QUEENSCOACH_TLS_KEY` instead makes it serve HTTPS itself, for a
   deployment with nothing in front of it.
-- `CATS_PUBLIC_URL` is what clients dial and is this server's OAuth issuer
+- `QUEENSCOACH_PUBLIC_URL` is what clients dial and is this server's OAuth issuer
   identifier, so it must be the external URL, not the bind address.
 - Token state is in memory by default and therefore per-process: restarting
-  invalidates outstanding tokens. `CATS_TOKEN_STORE=firestore` keeps it in
+  invalidates outstanding tokens. `QUEENSCOACH_TOKEN_STORE=firestore` keeps it in
   Firestore instead (install the `gcp` extra: `pip install 'queenscoach[gcp]'`), so
   sign-ins survive restarts and every instance shares them. Pair it with
-  `CATS_STATELESS_HTTP=true` so that any instance can answer any request.
+  `QUEENSCOACH_STATELESS_HTTP=true` so that any instance can answer any request.
 - Access tokens last an hour and refresh tokens 30 days, both rotated on refresh.
 
 ## Data sources
@@ -267,15 +267,15 @@ All optional; defaults target the CATS feeds above. Durations are in millisecond
 
 | Variable | Default |
 | --- | --- |
-| `CATS_VEHICLE_POSITIONS_URL` | CATS vehicle positions feed |
-| `CATS_TRIP_UPDATES_URL` | CATS trip updates feed |
-| `CATS_ALERTS_URL` | CATS alerts feed |
-| `CATS_STATIC_GTFS_URL` | CATS static GTFS zip |
-| `CATS_REALTIME_TTL_MS` | `20000` |
-| `CATS_STATIC_TTL_MS` | `21600000` |
-| `CATS_REQUEST_TIMEOUT_MS` | `30000` |
-| `CATS_MAX_FEED_BYTES` | `33554432` |
-| `CATS_MAX_STATIC_BYTES` | `268435456` |
+| `QUEENSCOACH_VEHICLE_POSITIONS_URL` | CATS vehicle positions feed |
+| `QUEENSCOACH_TRIP_UPDATES_URL` | CATS trip updates feed |
+| `QUEENSCOACH_ALERTS_URL` | CATS alerts feed |
+| `QUEENSCOACH_STATIC_GTFS_URL` | CATS static GTFS zip |
+| `QUEENSCOACH_REALTIME_TTL_MS` | `20000` |
+| `QUEENSCOACH_STATIC_TTL_MS` | `21600000` |
+| `QUEENSCOACH_REQUEST_TIMEOUT_MS` | `30000` |
+| `QUEENSCOACH_MAX_FEED_BYTES` | `33554432` |
+| `QUEENSCOACH_MAX_STATIC_BYTES` | `268435456` |
 
 Feed URLs must be `http` or `https`; anything else is rejected at startup.
 
@@ -283,7 +283,7 @@ Feed URLs must be `http` or `https`; anything else is rejected at startup.
 
 | Variable | CLI | Default |
 | --- | --- | --- |
-| `CATS_TRANSPORT` | `--transport` | `stdio` |
+| `QUEENSCOACH_TRANSPORT` | `--transport` | `stdio` |
 
 ### HTTP transport
 
@@ -291,21 +291,21 @@ Read only when `--transport http` is selected.
 
 | Variable | CLI | Default | Notes |
 | --- | --- | --- | --- |
-| `CATS_HTTP_HOST` | `--host` | `127.0.0.1` | Bind address. |
-| `CATS_HTTP_PORT` | `--port` | `8000` | Bind port. |
-| `CATS_PUBLIC_URL` | `--public-url` | `http://localhost:<port>` | External origin; the OAuth issuer. |
-| `CATS_GOOGLE_CLIENT_ID` | | **required** | From Google Cloud credentials. |
-| `CATS_GOOGLE_CLIENT_SECRET` | | **required** | From Google Cloud credentials. |
-| `CATS_ALLOWED_EMAILS` | | — | Allowed addresses, comma- or space-separated. |
-| `CATS_ALLOWED_DOMAINS` | | — | Allowed bare domains, e.g. `example.com`. |
-| `CATS_ALLOW_ANY_GOOGLE_ACCOUNT` | | `false` | Opt in to admitting every Google account. |
-| `CATS_TLS_CERT` | `--tls-cert` | — | PEM chain, to serve HTTPS directly. |
-| `CATS_TLS_KEY` | `--tls-key` | — | PEM private key. Required with the above. |
-| `CATS_ACCESS_TOKEN_TTL_MS` | | `3600000` | Access token lifetime. |
-| `CATS_REFRESH_TOKEN_TTL_MS` | | `2592000000` | Refresh token lifetime. |
-| `CATS_TOKEN_STORE` | | `memory` | `memory`, or `firestore` (needs the `gcp` extra). |
-| `CATS_FIRESTORE_DATABASE` | | `(default)` | Firestore database for the token store. |
-| `CATS_STATELESS_HTTP` | | `false` | Serve without MCP sessions, for restarts and multiple instances. |
+| `QUEENSCOACH_HTTP_HOST` | `--host` | `127.0.0.1` | Bind address. |
+| `QUEENSCOACH_HTTP_PORT` | `--port` | `8000` | Bind port. |
+| `QUEENSCOACH_PUBLIC_URL` | `--public-url` | `http://localhost:<port>` | External origin; the OAuth issuer. |
+| `QUEENSCOACH_GOOGLE_CLIENT_ID` | | **required** | From Google Cloud credentials. |
+| `QUEENSCOACH_GOOGLE_CLIENT_SECRET` | | **required** | From Google Cloud credentials. |
+| `QUEENSCOACH_ALLOWED_EMAILS` | | — | Allowed addresses, comma- or space-separated. |
+| `QUEENSCOACH_ALLOWED_DOMAINS` | | — | Allowed bare domains, e.g. `example.com`. |
+| `QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT` | | `false` | Opt in to admitting every Google account. |
+| `QUEENSCOACH_TLS_CERT` | `--tls-cert` | — | PEM chain, to serve HTTPS directly. |
+| `QUEENSCOACH_TLS_KEY` | `--tls-key` | — | PEM private key. Required with the above. |
+| `QUEENSCOACH_ACCESS_TOKEN_TTL_MS` | | `3600000` | Access token lifetime. |
+| `QUEENSCOACH_REFRESH_TOKEN_TTL_MS` | | `2592000000` | Refresh token lifetime. |
+| `QUEENSCOACH_TOKEN_STORE` | | `memory` | `memory`, or `firestore` (needs the `gcp` extra). |
+| `QUEENSCOACH_FIRESTORE_DATABASE` | | `(default)` | Firestore database for the token store. |
+| `QUEENSCOACH_STATELESS_HTTP` | | `false` | Serve without MCP sessions, for restarts and multiple instances. |
 
 One of the three allow-list settings is required; see above.
 

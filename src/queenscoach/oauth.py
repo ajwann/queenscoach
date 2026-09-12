@@ -44,7 +44,7 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-from .config import CATS_SCOPE, GOOGLE_ISSUERS, GOOGLE_SCOPES, GoogleOAuthConfig
+from .config import GOOGLE_ISSUERS, GOOGLE_SCOPES, QUEENSCOACH_SCOPE, GoogleOAuthConfig
 from .token_store import MemoryTokenStore, PendingAuthorization, TokenStore
 
 _logger = logging.getLogger(__name__)
@@ -296,7 +296,7 @@ class GoogleAuthorizationServerProvider(
         await self._store.save_code(
             AuthorizationCode(
                 code=authorization_code,
-                scopes=pending.params.scopes or [CATS_SCOPE],
+                scopes=pending.params.scopes or [QUEENSCOACH_SCOPE],
                 expires_at=self._now() + _AUTHORIZATION_CODE_TTL_SECONDS,
                 client_id=pending.client_id,
                 code_challenge=pending.params.code_challenge,
@@ -380,7 +380,7 @@ class GoogleAuthorizationServerProvider(
         self, *, client_id: str, scopes: list[str], subject: str | None, resource: str | None
     ) -> OAuthToken:
         now = self._now()
-        granted = scopes or [CATS_SCOPE]
+        granted = scopes or [QUEENSCOACH_SCOPE]
         access = AccessToken(
             token=_new_secret(),
             client_id=client_id,

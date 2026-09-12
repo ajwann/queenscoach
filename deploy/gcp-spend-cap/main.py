@@ -1,6 +1,6 @@
 """Budget kill switch: unlink billing from the project once spend nears its budget.
 
-Deployed by scripts/deploy-gcp.sh when CATS_SPEND_CAP=true, as a Cloud Run
+Deployed by scripts/deploy-gcp.sh when QUEENSCOACH_SPEND_CAP=true, as a Cloud Run
 function subscribed to the budget's Pub/Sub notifications. Google Cloud has no
 hard spending limit; this is its documented substitute. Removing the billing
 account stops every paid service in the project, so the MCP server goes

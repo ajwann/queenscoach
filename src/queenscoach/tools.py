@@ -1,4 +1,4 @@
-"""The three CATS tools exposed over MCP.
+"""The three transit tools exposed over MCP.
 
 Each tool returns a plain JSON-shaped ``dict`` so the MCP layer can render it
 both as text and as structured content.

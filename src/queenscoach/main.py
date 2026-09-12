@@ -56,32 +56,39 @@ def build_parser() -> argparse.ArgumentParser:
         "--transport",
         choices=TRANSPORTS,
         default=None,
-        help="Transport to serve on (env CATS_TRANSPORT; default stdio).",
+        help="Transport to serve on (env QUEENSCOACH_TRANSPORT; default stdio).",
     )
     http_options = parser.add_argument_group("http transport")
     http_options.add_argument(
-        "--host", default=None, help="Interface to bind (env CATS_HTTP_HOST; default 127.0.0.1)."
+        "--host",
+        default=None,
+        help="Interface to bind (env QUEENSCOACH_HTTP_HOST; default 127.0.0.1).",
     )
     http_options.add_argument(
-        "--port", type=int, default=None, help="Port to bind (env CATS_HTTP_PORT; default 8000)."
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind (env QUEENSCOACH_HTTP_PORT; default 8000).",
     )
     http_options.add_argument(
         "--tls-cert",
         default=None,
         help=(
             "PEM certificate chain, to serve HTTPS directly with no proxy in "
-            "front (env CATS_TLS_CERT). Requires --tls-key."
+            "front (env QUEENSCOACH_TLS_CERT). Requires --tls-key."
         ),
     )
     http_options.add_argument(
-        "--tls-key", default=None, help="PEM private key (env CATS_TLS_KEY). Requires --tls-cert."
+        "--tls-key",
+        default=None,
+        help="PEM private key (env QUEENSCOACH_TLS_KEY). Requires --tls-cert.",
     )
     http_options.add_argument(
         "--public-url",
         default=None,
         help=(
-            "Externally reachable origin, e.g. https://cats.example.com "
-            "(env CATS_PUBLIC_URL). It is this server's OAuth issuer, so it must "
+            "Externally reachable origin, e.g. https://queenscoach.example.com "
+            "(env QUEENSCOACH_PUBLIC_URL). It is this server's OAuth issuer, so it must "
             "match the URL clients dial."
         ),
     )

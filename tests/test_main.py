@@ -47,7 +47,11 @@ def test_a_misconfigured_http_run_exits_with_an_error_not_a_traceback(
 ) -> None:
     # No Google client credentials in the environment: the server must refuse
     # to start rather than come up unauthenticated.
-    for name in ("CATS_GOOGLE_CLIENT_ID", "CATS_GOOGLE_CLIENT_SECRET", "CATS_ALLOWED_EMAILS"):
+    for name in (
+        "QUEENSCOACH_GOOGLE_CLIENT_ID",
+        "QUEENSCOACH_GOOGLE_CLIENT_SECRET",
+        "QUEENSCOACH_ALLOWED_EMAILS",
+    ):
         monkeypatch.delenv(name, raising=False)
 
     assert main(["--transport", "http"]) == 1

@@ -89,7 +89,7 @@ def create_server(
     auth: AuthSettings | None = None,
     auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
 ) -> MCPServer:
-    """Build the MCP server with the three CATS tools registered.
+    """Build the MCP server with the three transit tools registered.
 
     Args:
         deps: Feed and schedule loaders the tools read through.

@@ -9,15 +9,15 @@ from mcp.server.auth.provider import AuthorizationParams, AuthorizeError, TokenE
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 
-from queenscoach.config import CATS_SCOPE, GoogleOAuthConfig
+from queenscoach.config import QUEENSCOACH_SCOPE, GoogleOAuthConfig
 from queenscoach.oauth import (
     GoogleAuthError,
     GoogleAuthorizationServerProvider,
     GoogleIdentity,
 )
 
-RESOURCE_URL = "https://cats.test/mcp"
-CALLBACK_URL = "https://cats.test/auth/google/callback"
+RESOURCE_URL = "https://queenscoach.test/mcp"
+CALLBACK_URL = "https://queenscoach.test/auth/google/callback"
 CLIENT_REDIRECT = "http://127.0.0.1:33418/callback"
 
 
@@ -87,14 +87,14 @@ def client(client_id: str = "client-1") -> OAuthClientInformationFull:
         client_id=client_id,
         client_secret="client-secret",  # noqa: S106 (a fixture, not a real credential)
         redirect_uris=[AnyUrl(CLIENT_REDIRECT)],
-        scope=CATS_SCOPE,
+        scope=QUEENSCOACH_SCOPE,
     )
 
 
 def params(**overrides: object) -> AuthorizationParams:
     settings: dict[str, object] = {
         "state": "client-state",
-        "scopes": [CATS_SCOPE],
+        "scopes": [QUEENSCOACH_SCOPE],
         "code_challenge": "client-code-challenge",
         "redirect_uri": AnyUrl(CLIENT_REDIRECT),
         "redirect_uri_provided_explicitly": True,
@@ -246,7 +246,7 @@ async def test_a_missing_resource_indicator_still_yields_a_token_for_this_server
     access = await provider.load_access_token(token.access_token)
     assert access is not None
     assert access.resource == RESOURCE_URL
-    assert access.scopes == [CATS_SCOPE]
+    assert access.scopes == [QUEENSCOACH_SCOPE]
 
 
 async def test_an_authorization_code_cannot_be_redeemed_twice() -> None:
@@ -304,7 +304,7 @@ async def test_refreshing_rotates_both_tokens() -> None:
 
     stored = await provider.load_refresh_token(registered, first.refresh_token)
     assert stored is not None
-    second = await provider.exchange_refresh_token(registered, stored, [CATS_SCOPE])
+    second = await provider.exchange_refresh_token(registered, stored, [QUEENSCOACH_SCOPE])
 
     assert second.access_token != first.access_token
     assert second.refresh_token != first.refresh_token

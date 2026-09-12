@@ -60,7 +60,7 @@ GOOGLE_SCOPES = ("openid", "email")
 
 #: The one scope this server issues. Every tool is read-only, so there is
 #: nothing finer to divide.
-CATS_SCOPE = "cats:read"
+QUEENSCOACH_SCOPE = "queenscoach:read"
 
 _DEFAULT_ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000
 _DEFAULT_REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -133,23 +133,29 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
     """
     env = os.environ if env is None else env
     return Config(
-        vehicle_positions_url=_read_url(env, "CATS_VEHICLE_POSITIONS_URL", _VEHICLE_POSITIONS_URL),
-        trip_updates_url=_read_url(env, "CATS_TRIP_UPDATES_URL", _TRIP_UPDATES_URL),
-        alerts_url=_read_url(env, "CATS_ALERTS_URL", _ALERTS_URL),
-        static_gtfs_url=_read_url(env, "CATS_STATIC_GTFS_URL", _STATIC_GTFS_URL),
+        vehicle_positions_url=_read_url(
+            env, "QUEENSCOACH_VEHICLE_POSITIONS_URL", _VEHICLE_POSITIONS_URL
+        ),
+        trip_updates_url=_read_url(env, "QUEENSCOACH_TRIP_UPDATES_URL", _TRIP_UPDATES_URL),
+        alerts_url=_read_url(env, "QUEENSCOACH_ALERTS_URL", _ALERTS_URL),
+        static_gtfs_url=_read_url(env, "QUEENSCOACH_STATIC_GTFS_URL", _STATIC_GTFS_URL),
         realtime_ttl_seconds=_read_positive_int(
-            env, "CATS_REALTIME_TTL_MS", _DEFAULT_REALTIME_TTL_MS
+            env, "QUEENSCOACH_REALTIME_TTL_MS", _DEFAULT_REALTIME_TTL_MS
         )
         / 1000,
-        static_ttl_seconds=_read_positive_int(env, "CATS_STATIC_TTL_MS", _DEFAULT_STATIC_TTL_MS)
+        static_ttl_seconds=_read_positive_int(
+            env, "QUEENSCOACH_STATIC_TTL_MS", _DEFAULT_STATIC_TTL_MS
+        )
         / 1000,
         request_timeout_seconds=_read_positive_int(
-            env, "CATS_REQUEST_TIMEOUT_MS", _DEFAULT_REQUEST_TIMEOUT_MS
+            env, "QUEENSCOACH_REQUEST_TIMEOUT_MS", _DEFAULT_REQUEST_TIMEOUT_MS
         )
         / 1000,
-        max_feed_bytes=_read_positive_int(env, "CATS_MAX_FEED_BYTES", _DEFAULT_MAX_FEED_BYTES),
+        max_feed_bytes=_read_positive_int(
+            env, "QUEENSCOACH_MAX_FEED_BYTES", _DEFAULT_MAX_FEED_BYTES
+        ),
         max_static_bytes=_read_positive_int(
-            env, "CATS_MAX_STATIC_BYTES", _DEFAULT_MAX_STATIC_BYTES
+            env, "QUEENSCOACH_MAX_STATIC_BYTES", _DEFAULT_MAX_STATIC_BYTES
         ),
     )
 
@@ -203,7 +209,7 @@ class HttpConfig:
     #: a proxy or tunnel; a server terminating its own TLS binds a real address.
     host: str
     port: int
-    #: The externally reachable origin, e.g. ``https://cats.example.com``. It is
+    #: The externally reachable origin, e.g. ``https://queenscoach.example.com``. It is
     #: this server's OAuth issuer identifier, so it must match what clients
     #: actually dial, not the bind address.
     public_url: str
@@ -315,8 +321,8 @@ def load_http_config(
 
     Command-line overrides take precedence over the environment. Google client
     credentials are mandatory and access is denied by default: one of
-    ``CATS_ALLOWED_EMAILS``, ``CATS_ALLOWED_DOMAINS``, or an explicit
-    ``CATS_ALLOW_ANY_GOOGLE_ACCOUNT`` must say who is allowed in, so a
+    ``QUEENSCOACH_ALLOWED_EMAILS``, ``QUEENSCOACH_ALLOWED_DOMAINS``, or an explicit
+    ``QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT`` must say who is allowed in, so a
     misconfigured deployment is unreachable rather than open to every Google
     account on the internet.
 
@@ -325,84 +331,87 @@ def load_http_config(
     """
     env = os.environ if env is None else env
 
-    resolved_host = host or (env.get("CATS_HTTP_HOST") or "").strip() or _DEFAULT_HTTP_HOST
+    resolved_host = host or (env.get("QUEENSCOACH_HTTP_HOST") or "").strip() or _DEFAULT_HTTP_HOST
     if port is not None and not 1 <= port <= 65535:
         raise ConfigError(f"port must be between 1 and 65535, got {port}")
     resolved_port = (
-        port if port is not None else _read_port(env, "CATS_HTTP_PORT", _DEFAULT_HTTP_PORT)
+        port if port is not None else _read_port(env, "QUEENSCOACH_HTTP_PORT", _DEFAULT_HTTP_PORT)
     )
 
-    origin_env = {"CATS_PUBLIC_URL": public_url} if public_url is not None else env
-    origin = _read_origin(origin_env, "CATS_PUBLIC_URL", f"http://localhost:{resolved_port}")
+    origin_env = {"QUEENSCOACH_PUBLIC_URL": public_url} if public_url is not None else env
+    origin = _read_origin(origin_env, "QUEENSCOACH_PUBLIC_URL", f"http://localhost:{resolved_port}")
     # RFC 8414 requires an HTTPS issuer; the SDK relaxes that for loopback so a
     # server can be tried locally. Checked here so it reads as a configuration
     # error rather than surfacing from deep inside the transport at startup.
     parsed_origin = urlsplit(origin)
     if parsed_origin.scheme != "https" and parsed_origin.hostname not in _LOOPBACK_HOSTS:
         raise ConfigError(
-            f"CATS_PUBLIC_URL must be https (or a loopback address), got {origin}. "
+            f"QUEENSCOACH_PUBLIC_URL must be https (or a loopback address), got {origin}. "
             "Terminate TLS in front of this server and set its public https URL here."
         )
 
-    allowed_emails = _read_list(env, "CATS_ALLOWED_EMAILS")
-    allowed_domains = _read_list(env, "CATS_ALLOWED_DOMAINS")
-    allow_any_account = _read_flag(env, "CATS_ALLOW_ANY_GOOGLE_ACCOUNT")
+    allowed_emails = _read_list(env, "QUEENSCOACH_ALLOWED_EMAILS")
+    allowed_domains = _read_list(env, "QUEENSCOACH_ALLOWED_DOMAINS")
+    allow_any_account = _read_flag(env, "QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT")
     if not (allowed_emails or allowed_domains or allow_any_account):
         raise ConfigError(
-            "No Google accounts are allowed to reach this server. Set CATS_ALLOWED_EMAILS "
-            "and/or CATS_ALLOWED_DOMAINS, or set CATS_ALLOW_ANY_GOOGLE_ACCOUNT=true to "
-            "intentionally admit every Google account."
+            "No Google accounts are allowed to reach this server. Set "
+            "QUEENSCOACH_ALLOWED_EMAILS and/or QUEENSCOACH_ALLOWED_DOMAINS, or set "
+            "QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT=true to intentionally admit every "
+            "Google account."
         )
     for domain in allowed_domains:
         if "@" in domain or "." not in domain:
             raise ConfigError(
-                "CATS_ALLOWED_DOMAINS entries must be bare domains like example.com, "
+                "QUEENSCOACH_ALLOWED_DOMAINS entries must be bare domains like example.com, "
                 f"got {domain!r}"
             )
     for address in allowed_emails:
         if "@" not in address:
-            raise ConfigError(f"CATS_ALLOWED_EMAILS entries must be addresses, got {address!r}")
+            raise ConfigError(
+                f"QUEENSCOACH_ALLOWED_EMAILS entries must be addresses, got {address!r}"
+            )
 
     google = GoogleOAuthConfig(
         client_id=_read_required(
             env,
-            "CATS_GOOGLE_CLIENT_ID",
+            "QUEENSCOACH_GOOGLE_CLIENT_ID",
             "Create an OAuth 2.0 Web application client at "
             "https://console.cloud.google.com/apis/credentials.",
         ),
         client_secret=_read_required(
-            env, "CATS_GOOGLE_CLIENT_SECRET", "It is shown when the OAuth client is created."
+            env, "QUEENSCOACH_GOOGLE_CLIENT_SECRET", "It is shown when the OAuth client is created."
         ),
         allowed_emails=allowed_emails,
         allowed_domains=allowed_domains,
         allow_any_account=allow_any_account,
         authorization_url=_read_url(
-            env, "CATS_GOOGLE_AUTHORIZATION_URL", _GOOGLE_AUTHORIZATION_URL
+            env, "QUEENSCOACH_GOOGLE_AUTHORIZATION_URL", _GOOGLE_AUTHORIZATION_URL
         ),
-        token_url=_read_url(env, "CATS_GOOGLE_TOKEN_URL", _GOOGLE_TOKEN_URL),
-        jwks_url=_read_url(env, "CATS_GOOGLE_JWKS_URL", _GOOGLE_JWKS_URL),
+        token_url=_read_url(env, "QUEENSCOACH_GOOGLE_TOKEN_URL", _GOOGLE_TOKEN_URL),
+        jwks_url=_read_url(env, "QUEENSCOACH_GOOGLE_JWKS_URL", _GOOGLE_JWKS_URL),
         access_token_ttl_seconds=_read_positive_int(
-            env, "CATS_ACCESS_TOKEN_TTL_MS", _DEFAULT_ACCESS_TOKEN_TTL_MS
+            env, "QUEENSCOACH_ACCESS_TOKEN_TTL_MS", _DEFAULT_ACCESS_TOKEN_TTL_MS
         )
         / 1000,
         refresh_token_ttl_seconds=_read_positive_int(
-            env, "CATS_REFRESH_TOKEN_TTL_MS", _DEFAULT_REFRESH_TOKEN_TTL_MS
+            env, "QUEENSCOACH_REFRESH_TOKEN_TTL_MS", _DEFAULT_REFRESH_TOKEN_TTL_MS
         )
         / 1000,
     )
 
-    certfile = _read_readable_file(env, "CATS_TLS_CERT", tls_cert)
-    keyfile = _read_readable_file(env, "CATS_TLS_KEY", tls_key)
+    certfile = _read_readable_file(env, "QUEENSCOACH_TLS_CERT", tls_cert)
+    keyfile = _read_readable_file(env, "QUEENSCOACH_TLS_KEY", tls_key)
     if (certfile is None) != (keyfile is None):
-        missing = "CATS_TLS_KEY" if keyfile is None else "CATS_TLS_CERT"
+        missing = "QUEENSCOACH_TLS_KEY" if keyfile is None else "QUEENSCOACH_TLS_CERT"
         raise ConfigError(
             f"{missing} must be set too: serving TLS needs both a certificate and a key"
         )
 
-    store_kind = (env.get("CATS_TOKEN_STORE") or "").strip().lower() or "memory"
+    store_kind = (env.get("QUEENSCOACH_TOKEN_STORE") or "").strip().lower() or "memory"
     if store_kind not in TOKEN_STORES:
         raise ConfigError(
-            f"CATS_TOKEN_STORE must be one of {', '.join(TOKEN_STORES)}, got {store_kind!r}"
+            f"QUEENSCOACH_TOKEN_STORE must be one of {', '.join(TOKEN_STORES)}, got {store_kind!r}"
         )
 
     return HttpConfig(
@@ -414,22 +423,22 @@ def load_http_config(
         tls_certfile=certfile,
         tls_keyfile=keyfile,
         oauth_store=store_kind,
-        firestore_database=(env.get("CATS_FIRESTORE_DATABASE") or "").strip()
+        firestore_database=(env.get("QUEENSCOACH_FIRESTORE_DATABASE") or "").strip()
         or _DEFAULT_FIRESTORE_DATABASE,
-        stateless=_read_flag(env, "CATS_STATELESS_HTTP"),
+        stateless=_read_flag(env, "QUEENSCOACH_STATELESS_HTTP"),
     )
 
 
 def load_transport(
     env: Mapping[str, str] | None = None, *, override: str | None = None
 ) -> Transport:
-    """Resolve the transport from a CLI override or ``CATS_TRANSPORT``.
+    """Resolve the transport from a CLI override or ``QUEENSCOACH_TRANSPORT``.
 
     Raises:
         ConfigError: if the named transport is not one this server implements.
     """
     env = os.environ if env is None else env
-    raw = (override or env.get("CATS_TRANSPORT") or "stdio").strip().lower()
+    raw = (override or env.get("QUEENSCOACH_TRANSPORT") or "stdio").strip().lower()
     if raw not in TRANSPORTS:
         raise ConfigError(f"unknown transport {raw!r}; expected one of {', '.join(TRANSPORTS)}")
     return raw

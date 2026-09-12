@@ -15,7 +15,7 @@ import pytest
 from mcp.server.auth.provider import AccessToken, AuthorizationCode, RefreshToken
 from pydantic import AnyUrl
 
-from queenscoach.config import CATS_SCOPE
+from queenscoach.config import QUEENSCOACH_SCOPE
 from queenscoach.token_store import MemoryTokenStore, PendingAuthorization, TokenStore
 
 from .test_oauth import CLIENT_REDIRECT, RESOURCE_URL, Clock, client, params
@@ -71,7 +71,7 @@ def pending(clock: Clock, ttl: float = 600) -> PendingAuthorization:
 def authorization_code(clock: Clock, value: str = "code-1") -> AuthorizationCode:
     return AuthorizationCode(
         code=value,
-        scopes=[CATS_SCOPE],
+        scopes=[QUEENSCOACH_SCOPE],
         expires_at=clock.now + 60,
         client_id="client-1",
         code_challenge="client-code-challenge",
@@ -85,7 +85,7 @@ def authorization_code(clock: Clock, value: str = "code-1") -> AuthorizationCode
 def token_pair(
     clock: Clock, access: str = "access-1", refresh: str = "refresh-1"
 ) -> tuple[AccessToken, RefreshToken]:
-    common = {"client_id": "client-1", "scopes": [CATS_SCOPE], "resource": RESOURCE_URL}
+    common = {"client_id": "client-1", "scopes": [QUEENSCOACH_SCOPE], "resource": RESOURCE_URL}
     return (
         AccessToken(token=access, expires_at=int(clock.now + 3600), subject="s", **common),  # type: ignore[arg-type]
         RefreshToken(token=refresh, expires_at=int(clock.now + 86400), subject="s", **common),  # type: ignore[arg-type]

@@ -23,7 +23,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://cats.adamwanninger.com/mcp"
+      "url": "https://queenscoach.adamwanninger.com/mcp"
     }
   ]
 }

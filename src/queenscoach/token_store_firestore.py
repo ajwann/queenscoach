@@ -2,7 +2,7 @@
 
 For a server that scales to zero or runs more than one instance: sign-ins
 survive a cold start and every instance sees the same tokens. Imported only
-when ``CATS_TOKEN_STORE=firestore``, so the stdio transport and the in-memory
+when ``QUEENSCOACH_TOKEN_STORE=firestore``, so the stdio transport and the in-memory
 store never need google-cloud-firestore (the ``gcp`` extra).
 
 One collection per kind, each name carrying a configurable prefix. Every

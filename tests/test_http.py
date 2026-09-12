@@ -15,7 +15,7 @@ import pytest
 from mcp.types import LATEST_PROTOCOL_VERSION
 from starlette.applications import Starlette
 
-from queenscoach.config import CATS_SCOPE, ConfigError, HttpConfig
+from queenscoach.config import QUEENSCOACH_SCOPE, ConfigError, HttpConfig
 from queenscoach.http import create_http_app
 from queenscoach.oauth import GoogleIdentity
 from queenscoach.token_store import MemoryTokenStore
@@ -24,7 +24,7 @@ from queenscoach.tools import Dependencies
 from .conftest import fixture_deps
 from .test_oauth import ALLOWED, StubResolver, google_config
 
-PUBLIC_URL = "https://cats.test"
+PUBLIC_URL = "https://queenscoach.test"
 
 
 def http_config() -> HttpConfig:
@@ -96,7 +96,7 @@ async def test_authorization_server_metadata_advertises_dynamic_registration() -
     assert metadata["registration_endpoint"] == f"{PUBLIC_URL}/register"
     assert metadata["revocation_endpoint"] == f"{PUBLIC_URL}/revoke"
     assert metadata["code_challenge_methods_supported"] == ["S256"]
-    assert CATS_SCOPE in metadata["scopes_supported"]
+    assert QUEENSCOACH_SCOPE in metadata["scopes_supported"]
 
 
 async def test_the_google_callback_rejects_an_unknown_state() -> None:
@@ -155,7 +155,7 @@ async def _sign_in(client: httpx.AsyncClient, client_id: str) -> str:
             "response_type": "code",
             "code_challenge": CODE_CHALLENGE_VALUE,
             "code_challenge_method": "S256",
-            "scope": CATS_SCOPE,
+            "scope": QUEENSCOACH_SCOPE,
             "state": "client-state",
             "resource": f"{PUBLIC_URL}/mcp",
         },
@@ -259,7 +259,7 @@ async def test_a_denied_google_account_never_reaches_the_token_endpoint() -> Non
                 "response_type": "code",
                 "code_challenge": CODE_CHALLENGE_VALUE,
                 "code_challenge_method": "S256",
-                "scope": CATS_SCOPE,
+                "scope": QUEENSCOACH_SCOPE,
                 "state": "client-state",
             },
         )

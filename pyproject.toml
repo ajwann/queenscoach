@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The Firestore token store (CATS_TOKEN_STORE=firestore), for a hosted HTTP
+# The Firestore token store (QUEENSCOACH_TOKEN_STORE=firestore), for a hosted HTTP
 # server that scales to zero or runs several instances. stdio never needs it.
 gcp = ["google-cloud-firestore>=2.20,<3"]
 dev = [

@@ -37,33 +37,33 @@ and passing `--non-interactive` makes it run unattended.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `CATS_GCP_PROJECT` | the project labeled `app=queenscoach`, else a new `queenscoach-xxxxxx` | |
-| `CATS_GCP_REGION` | `us-east1` | Must be a region with Cloud Run, Firestore, and Artifact Registry. |
-| `CATS_GCP_SERVICE` | `queenscoach` | Cloud Run service name; part of the URL. |
-| `CATS_GCP_BILLING_ACCOUNT` | the only open billing account | Asked for when there are several. |
-| `CATS_GCP_MAX_INSTANCES` | `1` | Caps worst-case compute cost. |
-| `CATS_BUDGET_USD` | `5` | Monthly budget. Alerts go to billing admins at 50%, 90%, and 100%. |
-| `CATS_SPEND_CAP` | `false` | `true` turns the budget into a hard cap; see [the spend cap](#the-spend-cap). |
-| `CATS_SPEND_CAP_AT` | `0.8` | Fraction of the budget at which the cap fires. |
-| `CATS_GOOGLE_CLIENT_ID` | | From the OAuth client described next. |
-| `CATS_GOOGLE_CLIENT_SECRET` | | Kept in Secret Manager, never in the service's environment. Asked for once; later runs reuse it unless it is set or `--reset-secret` is passed. |
-| `CATS_ALLOWED_EMAILS` | | Who may sign in. At least one of these three is required. |
-| `CATS_ALLOWED_DOMAINS` | | Every verified address on these domains. |
-| `CATS_ALLOW_ANY_GOOGLE_ACCOUNT` | `false` | `true` makes the server public to any Google account. |
-| `CATS_DOMAIN` | | Serve at a domain of your own instead of the `run.app` URL; see [A custom domain](#a-custom-domain). |
+| `QUEENSCOACH_GCP_PROJECT` | the project labeled `app=queenscoach`, else a new `queenscoach-xxxxxx` | |
+| `QUEENSCOACH_GCP_REGION` | `us-east1` | Must be a region with Cloud Run, Firestore, and Artifact Registry. |
+| `QUEENSCOACH_GCP_SERVICE` | `queenscoach` | Cloud Run service name; part of the URL. |
+| `QUEENSCOACH_GCP_BILLING_ACCOUNT` | the only open billing account | Asked for when there are several. |
+| `QUEENSCOACH_GCP_MAX_INSTANCES` | `1` | Caps worst-case compute cost. |
+| `QUEENSCOACH_BUDGET_USD` | `5` | Monthly budget. Alerts go to billing admins at 50%, 90%, and 100%. |
+| `QUEENSCOACH_SPEND_CAP` | `false` | `true` turns the budget into a hard cap; see [the spend cap](#the-spend-cap). |
+| `QUEENSCOACH_SPEND_CAP_AT` | `0.8` | Fraction of the budget at which the cap fires. |
+| `QUEENSCOACH_GOOGLE_CLIENT_ID` | | From the OAuth client described next. |
+| `QUEENSCOACH_GOOGLE_CLIENT_SECRET` | | Kept in Secret Manager, never in the service's environment. Asked for once; later runs reuse it unless it is set or `--reset-secret` is passed. |
+| `QUEENSCOACH_ALLOWED_EMAILS` | | Who may sign in. At least one of these three is required. |
+| `QUEENSCOACH_ALLOWED_DOMAINS` | | Every verified address on these domains. |
+| `QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT` | `false` | `true` makes the server public to any Google account. |
+| `QUEENSCOACH_DOMAIN` | | Serve at a domain of your own instead of the `run.app` URL; see [A custom domain](#a-custom-domain). |
 
 ## The one manual step: the Google OAuth client
 
 Google has no API for creating OAuth clients, so the script creates the project,
 works out the service's URL, prints direct links and the exact redirect URI, and
 waits. The URL is fixed before anything is deployed:
-`https://<service>-<project number>.<region>.run.app`, or `https://<CATS_DOMAIN>`
+`https://<service>-<project number>.<region>.run.app`, or `https://<QUEENSCOACH_DOMAIN>`
 when that is set.
 
 In the project the script created (the links it prints go straight there):
 
 1. **Google Auth Platform → Branding.** Give the app a name and your support
-   email. With `CATS_DOMAIN`, also add its parent domain under **Authorized
+   email. With `QUEENSCOACH_DOMAIN`, also add its parent domain under **Authorized
    domains**.
 2. **Audience → External.**
    - For a private server, leave it in **Testing** and add each allowed address
@@ -100,13 +100,13 @@ secret.
 | APIs | Cloud Run, Cloud Build, Artifact Registry, Firestore, Secret Manager, Budgets |
 | OAuth client | Prints the links and redirect URI, then asks for the ID and secret |
 | Firestore | Native-mode database in the region, with TTL policies on every token collection |
-| Secret | `cats-google-client-secret` in Secret Manager; a new version only when it changes |
+| Secret | `queenscoach-google-client-secret` in Secret Manager; a new version only when it changes |
 | IAM | A runtime service account that can reach only Firestore and that one secret |
 | Registry | A Docker repository that keeps the three newest images |
 | Build | Cloud Build builds the `Dockerfile`, tagged with the git commit |
-| Deploy | Cloud Run, scaling from zero to `CATS_GCP_MAX_INSTANCES` |
-| Domain | With `CATS_DOMAIN`, maps the domain to the service and prints its DNS records |
-| Budget | The monthly budget, and with `CATS_SPEND_CAP=true` the kill switch |
+| Deploy | Cloud Run, scaling from zero to `QUEENSCOACH_GCP_MAX_INSTANCES` |
+| Domain | With `QUEENSCOACH_DOMAIN`, maps the domain to the service and prints its DNS records |
+| Budget | The monthly budget, and with `QUEENSCOACH_SPEND_CAP=true` the kill switch |
 | Verify | The discovery document names the public URL, and anonymous calls get 401 |
 
 `--allow-unauthenticated` on the Cloud Run service is deliberate. It means Cloud
@@ -118,9 +118,9 @@ Run passes requests through to the app, and the app's own OAuth refuses every
 Google proves who a caller is, and the allow list decides whether that person
 may use the server. With none of the three settings the server refuses to start.
 
-- `CATS_ALLOWED_EMAILS=you@gmail.com,friend@example.com` admits those accounts.
-- `CATS_ALLOWED_DOMAINS=example.com` admits every verified address on a domain.
-- `CATS_ALLOW_ANY_GOOGLE_ACCOUNT=true` admits everyone, which makes the server
+- `QUEENSCOACH_ALLOWED_EMAILS=you@gmail.com,friend@example.com` admits those accounts.
+- `QUEENSCOACH_ALLOWED_DOMAINS=example.com` admits every verified address on a domain.
+- `QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT=true` admits everyone, which makes the server
   public. Publish the OAuth app too, or Google keeps everyone but test users out.
 
 To change the list, re-run the script with the new value.
@@ -128,9 +128,9 @@ To change the list, re-run the script with the new value.
 ## A custom domain
 
 By default the server's address is its `run.app` URL. To serve it at a domain of
-your own, such as `mcp.example.com`, set `CATS_DOMAIN`. The script then:
+your own, such as `mcp.example.com`, set `QUEENSCOACH_DOMAIN`. The script then:
 
-- makes `https://<CATS_DOMAIN>` the server's public URL: the OAuth issuer, the
+- makes `https://<QUEENSCOACH_DOMAIN>` the server's public URL: the OAuth issuer, the
   resource that tokens are issued for, and the base of the redirect URI;
 - maps the domain to the service with a
   [Cloud Run domain mapping](https://cloud.google.com/run/docs/mapping-custom-domains),
@@ -163,7 +163,7 @@ Things to know:
   clients must connect through the domain.
 - Changing the public URL changes the OAuth issuer, so every connected client has
   to sign in again, and the OAuth client needs the new redirect URI.
-- To go back to `run.app`, re-run without `CATS_DOMAIN`, then delete the mapping
+- To go back to `run.app`, re-run without `QUEENSCOACH_DOMAIN`, then delete the mapping
   in the console (**Cloud Run → Domain mappings**).
 
 ## Cost
@@ -177,12 +177,12 @@ schedule.
 ### The spend cap
 
 **Google Cloud has no hard spending limit.** A budget only sends email. With
-`CATS_SPEND_CAP=true`, the script adds Google's documented substitute:
+`QUEENSCOACH_SPEND_CAP=true`, the script adds Google's documented substitute:
 
 1. The budget publishes its cost updates to a Pub/Sub topic, several times a
    day.
 2. A small Cloud Run function (`deploy/gcp-spend-cap/`) reads each update.
-3. When spend reaches `CATS_SPEND_CAP_AT` × the budget, it **unlinks billing
+3. When spend reaches `QUEENSCOACH_SPEND_CAP_AT` × the budget, it **unlinks billing
    from this project**.
 
 The function's identity has **Project Billing Manager on this project only**,
@@ -198,7 +198,7 @@ Know what you are opting into:
   collections only means everyone signs in again.
 - **Billing data lags by hours**, which is why the cap fires at 80% by default.
   A burst of abuse inside that window can still overshoot a little.
-- **One instance at most** (`CATS_GCP_MAX_INSTANCES=1`) keeps the worst case
+- **One instance at most** (`QUEENSCOACH_GCP_MAX_INSTANCES=1`) keeps the worst case
   small even before the cap reacts.
 
 ## Verify
@@ -226,7 +226,7 @@ Then add the connector: in Claude, **Settings → Connectors → Add custom
 connector** with the `/mcp` URL, or in Claude Code:
 
 ```bash
-claude mcp add --transport http cats https://queenscoach-123456789012.us-east1.run.app/mcp
+claude mcp add --transport http queenscoach https://queenscoach-123456789012.us-east1.run.app/mcp
 ```
 
 ## Update and remove

@@ -18,23 +18,23 @@
 #
 # Usage:
 #   scripts/deploy-gcp.sh
-#   CATS_GOOGLE_CLIENT_ID=... CATS_GOOGLE_CLIENT_SECRET=... \
-#     CATS_ALLOWED_EMAILS=you@gmail.com scripts/deploy-gcp.sh --non-interactive
+#   QUEENSCOACH_GOOGLE_CLIENT_ID=... QUEENSCOACH_GOOGLE_CLIENT_SECRET=... \
+#     QUEENSCOACH_ALLOWED_EMAILS=you@gmail.com scripts/deploy-gcp.sh --non-interactive
 #
 # Settings, from the environment (prompted for when needed and unset):
-#   CATS_GCP_PROJECT          default: the project labeled app=queenscoach, else a
+#   QUEENSCOACH_GCP_PROJECT          default: the project labeled app=queenscoach, else a
 #                             new queenscoach-xxxxxx
-#   CATS_GCP_REGION           default us-east1
-#   CATS_GCP_SERVICE          Cloud Run service name, default queenscoach
-#   CATS_GCP_BILLING_ACCOUNT  default: the only open billing account
-#   CATS_GCP_MAX_INSTANCES    default 1
-#   CATS_BUDGET_USD           monthly budget, default 5
-#   CATS_SPEND_CAP            true: unlink billing once spend nears the budget
-#   CATS_SPEND_CAP_AT         fraction of the budget that trips it, default 0.8
-#   CATS_SPEND_CAP_DRY_RUN    true: the kill switch only logs, for testing
-#   CATS_GOOGLE_CLIENT_ID, CATS_GOOGLE_CLIENT_SECRET
-#   CATS_ALLOWED_EMAILS, CATS_ALLOWED_DOMAINS, CATS_ALLOW_ANY_GOOGLE_ACCOUNT
-#   CATS_DOMAIN               serve at this domain rather than the run.app URL,
+#   QUEENSCOACH_GCP_REGION           default us-east1
+#   QUEENSCOACH_GCP_SERVICE          Cloud Run service name, default queenscoach
+#   QUEENSCOACH_GCP_BILLING_ACCOUNT  default: the only open billing account
+#   QUEENSCOACH_GCP_MAX_INSTANCES    default 1
+#   QUEENSCOACH_BUDGET_USD           monthly budget, default 5
+#   QUEENSCOACH_SPEND_CAP            true: unlink billing once spend nears the budget
+#   QUEENSCOACH_SPEND_CAP_AT         fraction of the budget that trips it, default 0.8
+#   QUEENSCOACH_SPEND_CAP_DRY_RUN    true: the kill switch only logs, for testing
+#   QUEENSCOACH_GOOGLE_CLIENT_ID, QUEENSCOACH_GOOGLE_CLIENT_SECRET
+#   QUEENSCOACH_ALLOWED_EMAILS, QUEENSCOACH_ALLOWED_DOMAINS, QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT
+#   QUEENSCOACH_DOMAIN               serve at this domain rather than the run.app URL,
 #                             through a Cloud Run domain mapping; verify it in
 #                             Google Search Console first
 #
@@ -53,7 +53,7 @@ readonly SCRIPT_DIR REPO_ROOT
 
 readonly LABEL_KEY=app
 readonly LABEL_VALUE=queenscoach
-readonly SECRET_NAME=cats-google-client-secret
+readonly SECRET_NAME=queenscoach-google-client-secret
 readonly REPOSITORY=queenscoach
 # Must match the collection names in src/queenscoach/token_store_firestore.py.
 readonly TOKEN_COLLECTIONS="oauth_clients oauth_pending oauth_codes oauth_access_tokens oauth_refresh_tokens"
@@ -61,11 +61,11 @@ readonly TOKEN_COLLECTIONS="oauth_clients oauth_pending oauth_codes oauth_access
 readonly BUDGET_PUBLISHER=billing-budget-alert@system.gserviceaccount.com
 readonly DOMAIN_RE='^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$'
 
-REGION="${CATS_GCP_REGION:-us-east1}"
-SERVICE="${CATS_GCP_SERVICE:-queenscoach}"
-MAX_INSTANCES="${CATS_GCP_MAX_INSTANCES:-1}"
-BUDGET_USD="${CATS_BUDGET_USD:-5}"
-SPEND_CAP_AT="${CATS_SPEND_CAP_AT:-0.8}"
+REGION="${QUEENSCOACH_GCP_REGION:-us-east1}"
+SERVICE="${QUEENSCOACH_GCP_SERVICE:-queenscoach}"
+MAX_INSTANCES="${QUEENSCOACH_GCP_MAX_INSTANCES:-1}"
+BUDGET_USD="${QUEENSCOACH_BUDGET_USD:-5}"
+SPEND_CAP_AT="${QUEENSCOACH_SPEND_CAP_AT:-0.8}"
 
 INTERACTIVE=1
 TEARDOWN=0
@@ -258,19 +258,19 @@ gcloud auth print-access-token >/dev/null 2>&1 \
 info "gcloud account $ACCOUNT"
 
 # Settings are checked before anything is created, so a typo costs a re-run only.
-[[ $REGION =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || die "CATS_GCP_REGION is not a region: $REGION"
+[[ $REGION =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || die "QUEENSCOACH_GCP_REGION is not a region: $REGION"
 [[ $SERVICE =~ ^[a-z][-a-z0-9]{0,19}[a-z0-9]$ ]] \
-  || die "CATS_GCP_SERVICE must be 2-21 lowercase letters, digits, or hyphens: $SERVICE"
-[[ $MAX_INSTANCES =~ ^[1-9][0-9]*$ ]] || die "CATS_GCP_MAX_INSTANCES must be a positive integer"
-[[ $BUDGET_USD =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || die "CATS_BUDGET_USD must be an amount like 5 or 5.50"
-[[ $SPEND_CAP_AT =~ ^(0?\.[0-9]+|1(\.0+)?)$ ]] || die "CATS_SPEND_CAP_AT must be a fraction like 0.8"
+  || die "QUEENSCOACH_GCP_SERVICE must be 2-21 lowercase letters, digits, or hyphens: $SERVICE"
+[[ $MAX_INSTANCES =~ ^[1-9][0-9]*$ ]] || die "QUEENSCOACH_GCP_MAX_INSTANCES must be a positive integer"
+[[ $BUDGET_USD =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || die "QUEENSCOACH_BUDGET_USD must be an amount like 5 or 5.50"
+[[ $SPEND_CAP_AT =~ ^(0?\.[0-9]+|1(\.0+)?)$ ]] || die "QUEENSCOACH_SPEND_CAP_AT must be a fraction like 0.8"
 
-DOMAIN="$(printf '%s' "${CATS_DOMAIN:-}" | tr '[:upper:]' '[:lower:]')"
+DOMAIN="$(printf '%s' "${QUEENSCOACH_DOMAIN:-}" | tr '[:upper:]' '[:lower:]')"
 DOMAIN="${DOMAIN%.}"
 DOMAIN_RECORDS=""
 if [[ -n $DOMAIN ]]; then
   [[ $DOMAIN =~ $DOMAIN_RE && ${#DOMAIN} -le 64 ]] \
-    || die "CATS_DOMAIN must be a bare domain of at most 64 characters, like mcp.example.com: $DOMAIN"
+    || die "QUEENSCOACH_DOMAIN must be a bare domain of at most 64 characters, like mcp.example.com: $DOMAIN"
   # Where Google offered domain mappings when this was written; a new region is
   # tried anyway, since the API refuses the mapping itself if it is unsupported.
   case "$REGION" in
@@ -286,7 +286,7 @@ fi
 
 step "Project"
 
-PROJECT="${CATS_GCP_PROJECT:-}"
+PROJECT="${QUEENSCOACH_GCP_PROJECT:-}"
 if [[ -z $PROJECT ]]; then
   FOUND="$(gcloud projects list \
     --filter="labels.$LABEL_KEY=$LABEL_VALUE AND lifecycleState=ACTIVE" \
@@ -294,7 +294,7 @@ if [[ -z $PROJECT ]]; then
   case "$(lines "$FOUND")" in
     0) PROJECT="" ;;
     1) PROJECT="$FOUND" ;;
-    *) die "several projects are labeled $LABEL_KEY=$LABEL_VALUE; set CATS_GCP_PROJECT to one of:
+    *) die "several projects are labeled $LABEL_KEY=$LABEL_VALUE; set QUEENSCOACH_GCP_PROJECT to one of:
 $FOUND" ;;
   esac
 fi
@@ -352,19 +352,19 @@ fi
 step "Who may sign in"
 
 ALLOW_ANY=false
-is_true "${CATS_ALLOW_ANY_GOOGLE_ACCOUNT:-}" && ALLOW_ANY=true
-if [[ $ALLOW_ANY == false && -z ${CATS_ALLOWED_EMAILS:-} && -z ${CATS_ALLOWED_DOMAINS:-} ]]; then
-  note "or set CATS_ALLOW_ANY_GOOGLE_ACCOUNT=true to admit every Google account"
-  ask CATS_ALLOWED_EMAILS "Google address(es) allowed, comma-separated"
+is_true "${QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT:-}" && ALLOW_ANY=true
+if [[ $ALLOW_ANY == false && -z ${QUEENSCOACH_ALLOWED_EMAILS:-} && -z ${QUEENSCOACH_ALLOWED_DOMAINS:-} ]]; then
+  note "or set QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT=true to admit every Google account"
+  ask QUEENSCOACH_ALLOWED_EMAILS "Google address(es) allowed, comma-separated"
 fi
 
-EMAILS="$(normalize_list "${CATS_ALLOWED_EMAILS:-}")"
-DOMAINS="$(normalize_list "${CATS_ALLOWED_DOMAINS:-}")"
+EMAILS="$(normalize_list "${QUEENSCOACH_ALLOWED_EMAILS:-}")"
+DOMAINS="$(normalize_list "${QUEENSCOACH_ALLOWED_DOMAINS:-}")"
 for entry in ${EMAILS//,/ }; do
   [[ $entry != *[\"\\]* && $entry == ?*@?*.?* ]] || die "not an email address: $entry"
 done
 for entry in ${DOMAINS//,/ }; do
-  [[ $entry =~ $DOMAIN_RE ]] || die "CATS_ALLOWED_DOMAINS entries must be bare domains: $entry"
+  [[ $entry =~ $DOMAIN_RE ]] || die "QUEENSCOACH_ALLOWED_DOMAINS entries must be bare domains: $entry"
 done
 
 if [[ $ALLOW_ANY == true ]]; then
@@ -378,7 +378,7 @@ fi
 
 step "Billing account"
 
-BILLING="${CATS_GCP_BILLING_ACCOUNT:-}"
+BILLING="${QUEENSCOACH_GCP_BILLING_ACCOUNT:-}"
 LINKED=""
 BILLING_ENABLED=""
 if [[ -n $PROJECT_STATE ]]; then
@@ -399,21 +399,21 @@ if [[ -z $BILLING ]]; then
     *)
       info "open billing accounts:"
       printf '%s\n' "$ACCOUNTS" | sed 's/^/      /'
-      ask CATS_GCP_BILLING_ACCOUNT "Billing account id to use"
-      BILLING="$CATS_GCP_BILLING_ACCOUNT"
+      ask QUEENSCOACH_GCP_BILLING_ACCOUNT "Billing account id to use"
+      BILLING="$QUEENSCOACH_GCP_BILLING_ACCOUNT"
       ;;
   esac
 fi
 info "billing account $BILLING"
 
 SPEND_CAP=false
-is_true "${CATS_SPEND_CAP:-}" && SPEND_CAP=true
+is_true "${QUEENSCOACH_SPEND_CAP:-}" && SPEND_CAP=true
 SPEND_CAP_DRY_RUN=false
-is_true "${CATS_SPEND_CAP_DRY_RUN:-}" && SPEND_CAP_DRY_RUN=true
+is_true "${QUEENSCOACH_SPEND_CAP_DRY_RUN:-}" && SPEND_CAP_DRY_RUN=true
 if [[ $SPEND_CAP == true ]]; then
   info "budget \$$BUDGET_USD a month; billing is unlinked at ${SPEND_CAP_AT} of it"
 else
-  info "budget \$$BUDGET_USD a month (alerts only; CATS_SPEND_CAP=true makes it a cap)"
+  info "budget \$$BUDGET_USD a month (alerts only; QUEENSCOACH_SPEND_CAP=true makes it a cap)"
 fi
 
 if (( INTERACTIVE )); then
@@ -431,12 +431,12 @@ if [[ -z $PROJECT_STATE ]]; then
     --labels="$LABEL_KEY=$LABEL_VALUE" --quiet >/dev/null
   info "created project $PROJECT"
 elif [[ "$(gcloud projects describe "$PROJECT" --format="value(labels.$LABEL_KEY)")" != "$LABEL_VALUE" ]]; then
-  # Labeled so later runs find it without CATS_GCP_PROJECT. Changing a
+  # Labeled so later runs find it without QUEENSCOACH_GCP_PROJECT. Changing a
   # project's labels is beta-only in older gcloud releases, so this is best
   # effort: without the beta component the project is simply left unlabeled.
   gcloud beta projects update "$PROJECT" --update-labels="$LABEL_KEY=$LABEL_VALUE" \
       --quiet >/dev/null 2>&1 \
-    || warn "could not label $PROJECT $LABEL_KEY=$LABEL_VALUE; set CATS_GCP_PROJECT=$PROJECT on later runs"
+    || warn "could not label $PROJECT $LABEL_KEY=$LABEL_VALUE; set QUEENSCOACH_GCP_PROJECT=$PROJECT on later runs"
 fi
 
 if [[ $LINKED == "$BILLING" && $BILLING_ENABLED == True ]]; then
@@ -475,12 +475,12 @@ info "service URL $RUN_URL"
 step "Google OAuth client"
 
 # The secret is asked for once; later runs reuse the version in Secret Manager
-# unless CATS_GOOGLE_CLIENT_SECRET is set or --reset-secret is given.
+# unless QUEENSCOACH_GOOGLE_CLIENT_SECRET is set or --reset-secret is given.
 STORED_SECRET=""
-if [[ -z ${CATS_GOOGLE_CLIENT_SECRET:-} ]] && (( ! RESET_SECRET )); then
+if [[ -z ${QUEENSCOACH_GOOGLE_CLIENT_SECRET:-} ]] && (( ! RESET_SECRET )); then
   STORED_SECRET="$(gp secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null || true)"
 fi
-if [[ -z ${CATS_GOOGLE_CLIENT_ID:-} || ( -z ${CATS_GOOGLE_CLIENT_SECRET:-} && -z $STORED_SECRET ) ]]; then
+if [[ -z ${QUEENSCOACH_GOOGLE_CLIENT_ID:-} || ( -z ${QUEENSCOACH_GOOGLE_CLIENT_SECRET:-} && -z $STORED_SECRET ) ]]; then
   AUTHORIZED_DOMAIN_NOTE=""
   [[ -n $DOMAIN ]] && AUTHORIZED_DOMAIN_NOTE="
          Under Authorized domains, add the domain $DOMAIN belongs to."
@@ -503,16 +503,16 @@ if [[ -z ${CATS_GOOGLE_CLIENT_ID:-} || ( -z ${CATS_GOOGLE_CLIENT_SECRET:-} && -z
 
 EOF
 fi
-ask CATS_GOOGLE_CLIENT_ID "Google client ID"
-if [[ -z ${CATS_GOOGLE_CLIENT_SECRET:-} && -n $STORED_SECRET ]]; then
-  CATS_GOOGLE_CLIENT_SECRET="$STORED_SECRET"
+ask QUEENSCOACH_GOOGLE_CLIENT_ID "Google client ID"
+if [[ -z ${QUEENSCOACH_GOOGLE_CLIENT_SECRET:-} && -n $STORED_SECRET ]]; then
+  QUEENSCOACH_GOOGLE_CLIENT_SECRET="$STORED_SECRET"
   info "reusing the client secret stored in $SECRET_NAME (--reset-secret to replace it)"
 fi
-ask CATS_GOOGLE_CLIENT_SECRET "Google client secret" secret
-[[ $CATS_GOOGLE_CLIENT_ID =~ ^[A-Za-z0-9._-]+$ ]] || die "that does not look like an OAuth client ID"
-[[ $CATS_GOOGLE_CLIENT_ID == *.apps.googleusercontent.com ]] \
+ask QUEENSCOACH_GOOGLE_CLIENT_SECRET "Google client secret" secret
+[[ $QUEENSCOACH_GOOGLE_CLIENT_ID =~ ^[A-Za-z0-9._-]+$ ]] || die "that does not look like an OAuth client ID"
+[[ $QUEENSCOACH_GOOGLE_CLIENT_ID == *.apps.googleusercontent.com ]] \
   || warn "client IDs normally end in .apps.googleusercontent.com"
-info "client $CATS_GOOGLE_CLIENT_ID"
+info "client $QUEENSCOACH_GOOGLE_CLIENT_ID"
 
 # -- Firestore ---------------------------------------------------------------
 
@@ -541,10 +541,10 @@ if ! gp secrets describe "$SECRET_NAME" >/dev/null 2>&1; then
   gp secrets create "$SECRET_NAME" --replication-policy=automatic >/dev/null
 fi
 STORED_SECRET="$(gp secrets versions access latest --secret="$SECRET_NAME" 2>/dev/null || true)"
-if [[ $STORED_SECRET == "$CATS_GOOGLE_CLIENT_SECRET" ]]; then
+if [[ $STORED_SECRET == "$QUEENSCOACH_GOOGLE_CLIENT_SECRET" ]]; then
   info "$SECRET_NAME is current"
 else
-  printf '%s' "$CATS_GOOGLE_CLIENT_SECRET" \
+  printf '%s' "$QUEENSCOACH_GOOGLE_CLIENT_SECRET" \
     | gp secrets versions add "$SECRET_NAME" --data-file=- >/dev/null
   info "stored a new version of $SECRET_NAME"
 fi
@@ -623,13 +623,13 @@ step "Deploying to Cloud Run"
 # A file rather than --set-env-vars, whose commas would split the allow lists.
 # Every value was validated above to hold no quote or backslash.
 cat > "$WORK/env.yaml" <<YAML
-CATS_PUBLIC_URL: "$PUBLIC_URL"
-CATS_GOOGLE_CLIENT_ID: "$CATS_GOOGLE_CLIENT_ID"
-CATS_ALLOWED_EMAILS: "$EMAILS"
-CATS_ALLOWED_DOMAINS: "$DOMAINS"
-CATS_ALLOW_ANY_GOOGLE_ACCOUNT: "$ALLOW_ANY"
-CATS_TOKEN_STORE: "firestore"
-CATS_STATELESS_HTTP: "true"
+QUEENSCOACH_PUBLIC_URL: "$PUBLIC_URL"
+QUEENSCOACH_GOOGLE_CLIENT_ID: "$QUEENSCOACH_GOOGLE_CLIENT_ID"
+QUEENSCOACH_ALLOWED_EMAILS: "$EMAILS"
+QUEENSCOACH_ALLOWED_DOMAINS: "$DOMAINS"
+QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT: "$ALLOW_ANY"
+QUEENSCOACH_TOKEN_STORE: "firestore"
+QUEENSCOACH_STATELESS_HTTP: "true"
 YAML
 # --allow-unauthenticated lets requests reach the app; the app's own OAuth
 # refuses every /mcp call that carries no token it issued.
@@ -638,7 +638,7 @@ gp run deploy "$SERVICE" --region="$REGION" --image="$IMAGE" \
   --min-instances=0 --max-instances="$MAX_INSTANCES" --concurrency=80 \
   --cpu=1 --memory=512Mi --cpu-boost --timeout=300 --port=8080 \
   --env-vars-file="$WORK/env.yaml" \
-  --set-secrets="CATS_GOOGLE_CLIENT_SECRET=$SECRET_NAME:latest" \
+  --set-secrets="QUEENSCOACH_GOOGLE_CLIENT_SECRET=$SECRET_NAME:latest" \
   --labels="$LABEL_KEY=$LABEL_VALUE" >/dev/null
 info "deployed $SERVICE, up to $MAX_INSTANCES instance(s)"
 
@@ -763,7 +763,7 @@ ${GRN}==>${RST} ${B}Done.${RST}
       ${B}$PUBLIC_URL/mcp${RST}
 
     Claude:       Settings -> Connectors -> Add custom connector, with that URL
-    Claude Code:  claude mcp add --transport http cats $PUBLIC_URL/mcp
+    Claude Code:  claude mcp add --transport http queenscoach $PUBLIC_URL/mcp
 
     Sign-in fails until the OAuth client lists this redirect URI:
       $REDIRECT_URI

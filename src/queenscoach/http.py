@@ -18,7 +18,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
-from .config import CATS_SCOPE, GOOGLE_CALLBACK_PATH, ConfigError, HttpConfig
+from .config import GOOGLE_CALLBACK_PATH, QUEENSCOACH_SCOPE, ConfigError, HttpConfig
 from .oauth import GoogleAuthError, GoogleAuthorizationServerProvider, GoogleIdentityResolver
 from .server import create_server
 from .token_store import TokenStore
@@ -45,13 +45,13 @@ def _configured_token_store(config: HttpConfig) -> TokenStore | None:
         from .token_store_firestore import connect
     except ImportError as error:
         raise ConfigError(
-            "CATS_TOKEN_STORE=firestore needs the gcp extra: pip install 'queenscoach[gcp]'"
+            "QUEENSCOACH_TOKEN_STORE=firestore needs the gcp extra: pip install 'queenscoach[gcp]'"
         ) from error
     try:
         store = connect(database=config.firestore_database, now=time.time)
     except DefaultCredentialsError as error:
         raise ConfigError(
-            f"CATS_TOKEN_STORE=firestore found no Google credentials: {error}"
+            f"QUEENSCOACH_TOKEN_STORE=firestore found no Google credentials: {error}"
         ) from error
     _logger.info("keeping OAuth state in Firestore database %s", config.firestore_database)
     return store
@@ -65,9 +65,9 @@ def _auth_settings(config: HttpConfig) -> AuthSettings:
         # Tokens are minted here and always stamped with this resource, so the
         # bearer middleware can reject anything issued for somewhere else.
         validate_token_resource=True,
-        required_scopes=[CATS_SCOPE],
+        required_scopes=[QUEENSCOACH_SCOPE],
         client_registration_options=ClientRegistrationOptions(
-            enabled=True, valid_scopes=[CATS_SCOPE], default_scopes=[CATS_SCOPE]
+            enabled=True, valid_scopes=[QUEENSCOACH_SCOPE], default_scopes=[QUEENSCOACH_SCOPE]
         ),
         revocation_options=RevocationOptions(enabled=True),
     )
