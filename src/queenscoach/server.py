@@ -13,11 +13,24 @@ from typing import Annotated, Any
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError, ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from . import SERVER_NAME, SERVER_VERSION
+from .resources import (
+    CORE_STATIC_TABLES,
+    REALTIME_FEEDS,
+    STATIC_INDEX_URI,
+    STATIC_TABLE_URI_TEMPLATE,
+    RealtimeFeed,
+    UnknownResourceError,
+    realtime_feed,
+    realtime_uri,
+    static_index,
+    static_table,
+    static_table_uri,
+)
 from .static_gtfs import Mode
 from .tools import (
     DEFAULT_NEARBY_STOPS,
@@ -40,7 +53,8 @@ INSTRUCTIONS = (
     "anything near them, pass their current device location as latitude and "
     "longitude to list_stops or get_arrivals. Route 501 is the LYNX Blue Line "
     "and 510 the CityLYNX Gold Line. Coordinates are WGS84 decimal degrees and "
-    "times are ISO 8601 UTC."
+    "times are ISO 8601 UTC. The raw GTFS tables and decoded realtime feeds are "
+    "also available as gtfs:// resources."
 )
 
 _READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=True)
@@ -95,13 +109,24 @@ async def _respond(name: str, result: Awaitable[ToolResult]) -> ToolResult:
     return payload
 
 
+async def _read(uri: str, result: Awaitable[str]) -> str:
+    """Await a resource read, reporting a feed failure the way :func:`_respond` does."""
+    try:
+        return await result
+    except UnknownResourceError as error:
+        raise ResourceNotFoundError(str(error)) from error
+    except Exception as error:
+        _logger.warning("resource %s failed: %s", uri, error)
+        raise ResourceError(f"CATS feed request failed: {error}") from error
+
+
 def create_server(
     deps: Dependencies,
     *,
     auth: AuthSettings | None = None,
     auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
 ) -> MCPServer:
-    """Build the MCP server with the transit tools registered.
+    """Build the MCP server with the transit tools and GTFS resources registered.
 
     Args:
         deps: Feed and schedule loaders the tools read through.
@@ -153,7 +178,8 @@ def create_server(
             'or "near me" questions, pass the user\'s current device location as latitude and '
             'longitude; results are then nearest first with metersAway. Narrow with "mode" '
             '(e.g. train for the nearest rail station), "route", or "query" (part of a name). '
-            "Same-named platforms close together are returned as one station."
+            "Same-named platforms close together are returned as one station. The complete raw "
+            "stop table is the gtfs://static/stops.txt resource."
         ),
         annotations=_READ_ONLY,
     )
@@ -240,4 +266,69 @@ def create_server(
             ),
         )
 
+    _register_resources(server, deps)
     return server
+
+
+def _register_resources(server: MCPServer, deps: Dependencies) -> None:
+    @server.resource(
+        STATIC_INDEX_URI,
+        name="gtfs-static",
+        title="CATS static GTFS files",
+        description=(
+            "The files in the CATS static GTFS archive, with their sizes and resource URIs, "
+            "and when the archive was fetched."
+        ),
+        mime_type="application/json",
+    )
+    async def _static_index() -> str:
+        return await _read(STATIC_INDEX_URI, static_index(deps))
+
+    @server.resource(
+        STATIC_TABLE_URI_TEMPLATE,
+        name="gtfs-static-table",
+        title="CATS static GTFS table",
+        description=(
+            "One table from the CATS static GTFS archive as published, e.g. agency.txt or "
+            f"calendar_dates.txt. {STATIC_INDEX_URI} lists them."
+        ),
+        mime_type="text/csv",
+    )
+    async def _static_table(file: str) -> str:
+        return await _read(static_table_uri(file), static_table(deps, file))
+
+    for table in CORE_STATIC_TABLES:
+        _register_static_table(server, deps, table)
+    for feed in REALTIME_FEEDS:
+        _register_realtime_feed(server, deps, feed)
+
+
+def _register_static_table(server: MCPServer, deps: Dependencies, table: str) -> None:
+    uri = static_table_uri(table)
+
+    @server.resource(
+        uri,
+        name=f"gtfs-static-{table.removesuffix('.txt').replace('_', '-')}",
+        title=f"CATS GTFS {table}",
+        description=f"The {table} table of the CATS static GTFS archive, as CSV.",
+        mime_type="text/csv",
+    )
+    async def _read_table() -> str:
+        return await _read(uri, static_table(deps, table))
+
+
+def _register_realtime_feed(server: MCPServer, deps: Dependencies, feed: RealtimeFeed) -> None:
+    uri = realtime_uri(feed)
+
+    @server.resource(
+        uri,
+        name=f"gtfs-realtime-{feed}",
+        title=f"CATS GTFS-Realtime {feed.replace('-', ' ')}",
+        description=(
+            f"The CATS GTFS-Realtime {feed.replace('-', ' ')} feed, decoded to JSON. "
+            "Identifiers are raw feed ids and times are Unix seconds."
+        ),
+        mime_type="application/json",
+    )
+    async def _read_feed() -> str:
+        return await _read(uri, realtime_feed(deps, feed))

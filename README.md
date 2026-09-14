@@ -125,6 +125,23 @@ is ambiguous, the best match is used and the runners-up are listed under
 `otherStopsMatchingQuery`. Service alerts affecting the stop or its routes are
 attached when present.
 
+## Resources
+
+The feeds behind the tools, for clients and models that want the data itself.
+
+| URI | Type | Contents |
+| --- | --- | --- |
+| `gtfs://static` | JSON | The files in the static GTFS archive, their sizes and URIs, and when it was fetched. |
+| `gtfs://static/{file}` | CSV | Any table in the archive as CATS publishes it. `routes.txt`, `stops.txt`, `trips.txt`, and `stop_times.txt` are also listed individually. |
+| `gtfs://realtime/vehicle-positions` | JSON | The decoded VehiclePositions feed. |
+| `gtfs://realtime/trip-updates` | JSON | The decoded TripUpdates feed. |
+| `gtfs://realtime/alerts` | JSON | The decoded Alerts feed. |
+
+Static tables come from the same cached download the tools use. Realtime resources
+are the decoded feed entities with their GTFS-Realtime field names, raw ids, and Unix
+timestamps, without the schedule joins the tools add. `stop_times.txt` is large
+(about 12 MB in the live feed).
+
 ## Install
 
 Requires Python 3.11+.
@@ -385,7 +402,8 @@ One of the three allow-list settings is required; see above.
 | `realtime.py` | GTFS-Realtime protobuf decoding |
 | `transit.py` | Domain layer: joins realtime to schedule, resolves queries |
 | `tools.py` | The tools' behavior and JSON payloads |
-| `server.py` | MCP tool registration and schemas |
+| `resources.py` | The GTFS feeds as MCP resources |
+| `server.py` | MCP tool and resource registration, and schemas |
 | `oauth.py` | OAuth authorization server, with Google as the login |
 | `token_store.py` | Where OAuth state is kept, and the in-memory default |
 | `token_store_firestore.py` | The Firestore token store (the `gcp` extra only) |

@@ -190,6 +190,46 @@ def parse_schedule(archive_bytes: bytes) -> Schedule:
     return Schedule(routes=routes, stops=stops, trips=trips, stop_routes=stop_routes)
 
 
+@dataclass(frozen=True, slots=True)
+class ArchiveEntry:
+    name: str
+    #: Uncompressed size, in bytes.
+    size: int
+
+
+def list_archive(archive_bytes: bytes) -> list[ArchiveEntry]:
+    """The files in a GTFS zip archive, for publishing them individually.
+
+    Raises:
+        StaticGtfsError: if the archive is not a readable zip file.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            return [
+                ArchiveEntry(name=info.filename, size=info.file_size)
+                for info in archive.infolist()
+                if not info.is_dir()
+            ]
+    except zipfile.BadZipFile as error:
+        raise StaticGtfsError("Static GTFS archive could not be read as a zip file") from error
+
+
+def read_archive_text(archive_bytes: bytes, name: str) -> str | None:
+    """One table of a GTFS zip archive as text, or ``None`` if there is no such file.
+
+    Raises:
+        StaticGtfsError: if the archive is unreadable or the table implausibly large.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            if name not in archive.namelist():
+                return None
+            with archive.open(_table_info(archive, name)) as member:
+                return member.read().decode("utf-8-sig", errors="replace")
+    except zipfile.BadZipFile as error:
+        raise StaticGtfsError("Static GTFS archive could not be read as a zip file") from error
+
+
 def _parse_trips(rows: list[GtfsRow]) -> dict[str, Trip]:
     trips: dict[str, Trip] = {}
     for row in rows:
