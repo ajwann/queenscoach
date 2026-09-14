@@ -7,7 +7,7 @@
 **QueensCoach** is an MCP server for live **Charlotte Area Transit System (CATS)** bus
 and light rail data, built on the agency's public GTFS-Realtime feeds. It runs over
 **stdio**, launched by the MCP client that uses it, or over **HTTP** with Google OAuth
-in front of it, for a hosted server. Both transports serve the same three tools.
+in front of it, for a hosted server. Both transports serve the same tools.
 
 ## Hosted server
 
@@ -68,45 +68,62 @@ give it the same URL and it discovers the rest.
 
 | Tool | Purpose |
 | --- | --- |
-| `find_vehicle` | Locate one bus/train by vehicle number, or every vehicle on a route, and return GPS coordinates. |
-| `list_vehicles` | Current GPS coordinates of every bus and train in service. |
-| `get_arrivals` | Estimated arrival times at a specific stop or station. |
+| `list_vehicles` | GPS positions of buses and trains in service: one by number, a route's, or all of them. |
+| `list_stops` | Stops and stations with the routes serving each, nearest first from a location. |
+| `get_arrivals` | Estimated arrival times at a named stop, or at the station nearest a location. |
 
-### `find_vehicle`
-
-| Argument | Type | Notes |
-| --- | --- | --- |
-| `vehicle` | string | Vehicle number as shown on the bus/train, e.g. `2301`, `LRV307`. |
-| `route` | string | Route to locate: `9`, `501`, `Blue Line`, `Mt. Holly Road`. |
-| `mode` | `bus` \| `train` | Optional filter. |
-
-At least one of `vehicle` or `route` is required. Returns position, heading, speed,
-occupancy, headsign, and the next scheduled stop.
+Ask Claude "what's the closest train station to me?" or "when's the next train at my
+stop?" and it passes your device's location to `list_stops` or `get_arrivals`. The
+server never sees a location it isn't handed, so this needs a client that shares the
+device's location with the model.
 
 ### `list_vehicles`
 
 | Argument | Type | Notes |
 | --- | --- | --- |
+| `vehicle` | string | Vehicle number as shown on the bus/train, e.g. `2301`, `LRV307`. |
+| `route` | string | Route: `9`, `501`, `Blue Line`, `Mt. Holly Road`. |
 | `mode` | `bus` \| `train` | Optional filter. |
-| `route` | string | Optional single-route filter. |
 | `limit` | integer | Max vehicles to return (default and cap: 250). |
 
-Includes `countsByMode` and `totalInService` so the total is visible even when the
-list is truncated.
+All arguments are optional; with none, every vehicle in service is returned. Each
+vehicle has position, heading, speed, occupancy, headsign, and the next scheduled
+stop. `matches` and `countsByMode` report the total even when the list is truncated.
+
+### `list_stops`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `latitude`, `longitude` | number | A location; results are then nearest first, with `metersAway`. |
+| `query` | string | Stop id, stop code, or part of a stop name. |
+| `route` | string | Only stops this route serves. |
+| `mode` | `bus` \| `train` | Only stops with that service, e.g. `train` for the nearest rail station. |
+| `limit` | integer | Max stations (default 10 with a location, 250 without; cap 250). |
+
+Each station lists its `stopIds`, coordinates, `modes`, and `routes` (id, number, long
+name, mode): for example `501 · Light Rail - Lynx Blue Line`, `510 · CityLYNX Gold
+Line`, or bus routes like `29`. Stops no scheduled trip calls at are left out, and
+nothing farther than 50 km from the location is returned.
 
 ### `get_arrivals`
 
 | Argument | Type | Notes |
 | --- | --- | --- |
-| `stop` | string | **Required.** Stop id (`02400`), stop code, or part of a stop name (`CTC Station`). |
+| `stop` | string | Stop id (`02400`), stop code, or part of a stop name (`CTC Station`). |
+| `latitude`, `longitude` | number | Instead of `stop`: use the nearest station to this location. |
 | `route` | string | Optional route filter. |
 | `mode` | `bus` \| `train` | Optional filter. |
 | `limit` | integer | Max arrivals (default 10, cap 50). |
 
+Give either `stop` or a location. With a location, the filters choose the station too:
+`mode: train` finds the nearest stop a train calls at, not a closer bus stop, and the
+response carries its `metersAway`.
+
 Returns minutes away, predicted and scheduled times, schedule deviation, the vehicle
-number, and that vehicle's live position. When a name query is ambiguous, the best
-match is used and the runners-up are listed under `otherStopsMatchingQuery`. Service
-alerts affecting the stop or its routes are attached when present.
+number, the platform (`stopId`), and that vehicle's live position. When a name query
+is ambiguous, the best match is used and the runners-up are listed under
+`otherStopsMatchingQuery`. Service alerts affecting the stop or its routes are
+attached when present.
 
 ## Install
 
@@ -295,6 +312,9 @@ Verified against live feed captures:
 ## Behavior notes
 
 - Arrival predictions already in the past are filtered out; no negative ETAs.
+- Same-named stops within 200 m are one station: the two platforms of a Gold Line
+  stop, or bus stops facing each other across a street. `get_arrivals` reports
+  arrivals at all of them.
 - Feed responses are capped in size and time-bounded; one slow feed cannot hang a call.
 - Concurrent calls share a single in-flight fetch per feed, and one call giving up does
   not abort a fetch the others are awaiting.
@@ -361,10 +381,10 @@ One of the three allow-list settings is required; see above.
 | `feed_http.py` | Bounded, time-limited HTTP fetch |
 | `cache.py` | TTL cache with single-flight refresh |
 | `gtfs_csv.py` | GTFS-flavored CSV reading |
-| `static_gtfs.py` | Static schedule: routes, stops, trips |
+| `static_gtfs.py` | Static schedule: routes, stops, trips, and the routes serving each stop |
 | `realtime.py` | GTFS-Realtime protobuf decoding |
 | `transit.py` | Domain layer: joins realtime to schedule, resolves queries |
-| `tools.py` | The three tools' behavior and JSON payloads |
+| `tools.py` | The tools' behavior and JSON payloads |
 | `server.py` | MCP tool registration and schemas |
 | `oauth.py` | OAuth authorization server, with Google as the login |
 | `token_store.py` | Where OAuth state is kept, and the in-memory default |

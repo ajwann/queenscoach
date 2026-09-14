@@ -5,13 +5,18 @@ import pytest
 from queenscoach.realtime import VehiclePosition
 from queenscoach.static_gtfs import Schedule
 from queenscoach.transit import (
+    by_distance,
     distance_meters,
     find_routes,
     find_stops,
+    group_into_stations,
     iso_time,
     matches_vehicle_query,
     natural_key,
     normalize,
+    routes_by_name,
+    serves,
+    station_for,
 )
 
 
@@ -94,3 +99,49 @@ def test_vehicle_query_matches_label_id_or_entity_id() -> None:
     assert matches_vehicle_query(vehicle, "ENTITY-1")
     assert not matches_vehicle_query(vehicle, "230")
     assert not matches_vehicle_query(vehicle, "")
+
+
+def test_serves_reads_the_routes_calling_at_a_stop(schedule: Schedule) -> None:
+    blue_line_platform = schedule.stops["00015"]
+    assert serves(schedule, blue_line_platform)
+    assert serves(schedule, blue_line_platform, mode="train")
+    assert not serves(schedule, blue_line_platform, mode="bus")
+    assert serves(schedule, blue_line_platform, route_ids=frozenset({"501", "29"}))
+    assert not serves(schedule, blue_line_platform, route_ids=frozenset({"29"}))
+
+
+def test_a_stop_no_trip_calls_at_serves_nothing(schedule: Schedule) -> None:
+    unserved = next(
+        stop for stop in schedule.stops.values() if stop.stop_id not in schedule.stop_routes
+    )
+    assert not serves(schedule, unserved)
+
+
+def test_same_named_platforms_close_together_are_one_station(schedule: Schedule) -> None:
+    station = station_for(schedule, schedule.stops["51001"])
+    assert station.primary.stop_id == "51001"
+    assert station.stop_ids == {"51000", "51001"}
+    assert station.route_ids == {"510"}
+
+
+def test_differently_named_neighbours_stay_separate_stations(schedule: Schedule) -> None:
+    # CTC Station (Blue Line) and CTC/Arena CityLYNX (Gold Line) are ~100 m apart.
+    ctc = [schedule.stops["00002"], schedule.stops["51000"], schedule.stops["51001"]]
+    stations = group_into_stations(schedule, ctc)
+    assert [sorted(station.stop_ids) for station in stations] == [["00002"], ["51000", "51001"]]
+
+
+def test_by_distance_orders_nearest_first(schedule: Schedule) -> None:
+    seventh_st = schedule.stops["00001"]
+    ordered = by_distance(schedule.stops.values(), seventh_st.latitude, seventh_st.longitude)
+    assert ordered[0] is seventh_st
+    gaps = [
+        distance_meters(seventh_st.latitude, seventh_st.longitude, stop.latitude, stop.longitude)
+        for stop in ordered
+    ]
+    assert gaps == sorted(gaps)
+
+
+def test_routes_by_name_orders_numerically_and_skips_unknown_ids(schedule: Schedule) -> None:
+    routes = routes_by_name(schedule, ["510", "29", "missing", "501"])
+    assert [route.short_name for route in routes] == ["29", "501", "510"]
