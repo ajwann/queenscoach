@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Iterable, Iterator
 
 GtfsRow = dict[str, str | None]
 
@@ -21,21 +22,34 @@ def parse_csv(text: str) -> list[GtfsRow]:
     Empty fields become ``None``. Rows with fewer fields than the header leave
     the missing columns as ``None``; extra fields are discarded.
     """
-    reader = csv.reader(io.StringIO(text.lstrip("\ufeff"), newline=""))
+    return list(iter_csv(io.StringIO(text, newline="")))
+
+
+def iter_csv(lines: Iterable[str], columns: frozenset[str] | None = None) -> Iterator[GtfsRow]:
+    """Yield rows one at a time, for tables too large to hold as dicts.
+
+    ``lines`` must be opened with ``newline=""`` so quoted line breaks survive.
+    When ``columns`` is given, each row carries only those keys, which keeps a
+    large table's per-row cost to the fields actually read.
+    """
+    reader = csv.reader(lines)
     try:
         header = [name.strip() for name in next(reader)]
     except StopIteration:
-        return []
+        return
+    if header:
+        header[0] = header[0].lstrip("\ufeff")
+    wanted = [
+        (column, key)
+        for column, key in enumerate(header)
+        if key and (columns is None or key in columns)
+    ]
 
-    rows: list[GtfsRow] = []
     for values in reader:
         if not values:
             continue
         row: GtfsRow = {}
-        for column, key in enumerate(header):
-            if not key:
-                continue
+        for column, key in wanted:
             value = values[column].strip() if column < len(values) else ""
             row[key] = value or None
-        rows.append(row)
-    return rows
+        yield row

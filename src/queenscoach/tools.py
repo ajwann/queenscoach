@@ -47,7 +47,11 @@ class Dependencies:
     """Everything the tools need, injected so tests can supply fixtures."""
 
     load_schedule: Callable[[], Awaitable[Cached[Schedule]]]
+    #: The raw static GTFS zip the schedule was parsed from.
+    load_archive: Callable[[], Awaitable[Cached[bytes]]]
     feeds: RealtimeFeeds
+    #: Where the static archive comes from, reported by the ``gtfs://static`` resource.
+    static_gtfs_url: str = ""
     #: Current Unix time in seconds; overridden in tests for determinism.
     now: Callable[[], float] = field(default=time.time)
 

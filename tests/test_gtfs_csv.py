@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from queenscoach.gtfs_csv import parse_csv
+import io
+
+from queenscoach.gtfs_csv import iter_csv, parse_csv
 
 
 def test_parses_quoted_fields_containing_commas() -> None:
@@ -34,3 +36,10 @@ def test_header_only_input_yields_no_rows() -> None:
 
 def test_empty_input_yields_no_rows() -> None:
     assert parse_csv("") == []
+
+
+def test_iter_csv_streams_only_the_requested_columns() -> None:
+    lines = io.StringIO('﻿trip_id,arrival_time,stop_id\nT1,08:00:00,"00015"\n', newline="")
+    assert list(iter_csv(lines, frozenset({"trip_id", "stop_id"}))) == [
+        {"trip_id": "T1", "stop_id": "00015"}
+    ]

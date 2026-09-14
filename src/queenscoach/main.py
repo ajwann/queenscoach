@@ -26,7 +26,7 @@ from .config import (
 )
 from .realtime import create_realtime_feeds
 from .server import create_server
-from .static_gtfs import create_schedule_loader
+from .static_gtfs import create_static_loaders
 from .tools import Dependencies
 
 _logger = logging.getLogger("queenscoach")
@@ -97,8 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _build_dependencies() -> Dependencies:
     config = load_config()
+    static = create_static_loaders(config)
     return Dependencies(
-        load_schedule=create_schedule_loader(config), feeds=create_realtime_feeds(config)
+        load_schedule=static.load_schedule,
+        load_archive=static.load_archive,
+        feeds=create_realtime_feeds(config),
+        static_gtfs_url=config.static_gtfs_url,
     )
 
 

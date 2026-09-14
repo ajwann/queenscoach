@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
@@ -13,7 +14,7 @@ from queenscoach.server import create_server
 from queenscoach.static_gtfs import Schedule
 from queenscoach.tools import Dependencies
 
-from .conftest import FixtureFeeds, fixture_deps
+from .conftest import fixture_deps
 
 TOOL_NAMES = {"find_vehicle", "list_vehicles", "get_arrivals"}
 
@@ -72,7 +73,7 @@ async def test_a_feed_failure_becomes_a_readable_tool_error() -> None:
     async def load_schedule() -> Cached[Schedule]:
         raise RuntimeError("Request to https://feed.test/GTFS.zip failed: timed out")
 
-    deps = Dependencies(load_schedule=load_schedule, feeds=FixtureFeeds())
+    deps = replace(fixture_deps(), load_schedule=load_schedule)
     with pytest.raises(ToolError, match=r"CATS feed request failed: .*timed out"):
         await create_server(deps).call_tool("list_vehicles", {})
 

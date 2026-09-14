@@ -23,7 +23,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 #: Fixture capture time, in Unix seconds, so relative-time assertions are deterministic.
 CAPTURE_TIME = 1_788_904_788.0
 
-SCHEDULE: Schedule = parse_schedule((FIXTURES / "gtfs-static.zip").read_bytes())
+ARCHIVE: bytes = (FIXTURES / "gtfs-static.zip").read_bytes()
+SCHEDULE: Schedule = parse_schedule(ARCHIVE)
 VEHICLES: list[VehiclePosition] = decode_vehicle_positions(
     (FIXTURES / "VehiclePositions.pb").read_bytes()
 )
@@ -58,11 +59,17 @@ async def _load_schedule() -> Cached[Schedule]:
     return Cached(value=SCHEDULE, fetched_at=CAPTURE_TIME)
 
 
+async def _load_archive() -> Cached[bytes]:
+    return Cached(value=ARCHIVE, fetched_at=CAPTURE_TIME)
+
+
 def fixture_deps(feeds: FixtureFeeds | None = None) -> Dependencies:
     """Build tool dependencies backed by the fixtures and a frozen clock."""
     return Dependencies(
         load_schedule=_load_schedule,
+        load_archive=_load_archive,
         feeds=feeds or FixtureFeeds(),
+        static_gtfs_url="https://feed.test/GTFS.zip",
         now=lambda: CAPTURE_TIME,
     )
 
