@@ -14,7 +14,7 @@ import sys
 
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
-EXPECTED_TOOLS = {"find_vehicle", "list_vehicles", "get_arrivals"}
+EXPECTED_TOOLS = {"list_vehicles", "list_stops", "get_arrivals"}
 
 #: Modules a stdio server must never load: the HTTP transport and everything
 #: behind it, including the optional Firestore dependency.
@@ -35,7 +35,7 @@ def _unconfigured_environment() -> dict[str, str]:
     }
 
 
-async def test_stdio_serves_the_three_tools_with_no_configuration() -> None:
+async def test_stdio_serves_the_tools_with_no_configuration() -> None:
     server = StdioServerParameters(
         command=sys.executable, args=["-m", "queenscoach"], env=_unconfigured_environment()
     )

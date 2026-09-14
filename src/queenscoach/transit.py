@@ -17,6 +17,10 @@ from .static_gtfs import Mode, Route, Schedule, Stop
 _METERS_PER_SECOND_TO_MPH = 2.2369363
 _EARTH_RADIUS_METERS = 6_371_000
 
+#: Same-named stops closer than this are one place to a rider: the two
+#: platforms of a Gold Line stop, or bus stops facing each other across a street.
+STATION_RADIUS_METERS = 200
+
 VehicleMode = Literal["bus", "train", "unknown"]
 
 
@@ -55,7 +59,27 @@ class VehicleView:
 
 
 @dataclass(frozen=True, slots=True)
+class Station:
+    """One boardable place: a stop together with its same-named neighbours."""
+
+    #: The stop the station was found through comes first.
+    platforms: tuple[Stop, ...]
+    #: Every route whose scheduled trips call at any of the platforms.
+    route_ids: frozenset[str]
+
+    @property
+    def primary(self) -> Stop:
+        return self.platforms[0]
+
+    @property
+    def stop_ids(self) -> frozenset[str]:
+        return frozenset(platform.stop_id for platform in self.platforms)
+
+
+@dataclass(frozen=True, slots=True)
 class ArrivalView:
+    #: The platform the vehicle calls at, which matters when a station has several.
+    stop_id: str
     route: ResolvedRouteRef | None
     headsign: str | None
     vehicle: str | None
@@ -191,6 +215,87 @@ def find_stops(schedule: Schedule, query: str, limit: int = 10) -> list[Stop]:
     return matches[:limit]
 
 
+def routes_by_name(schedule: Schedule, route_ids: Iterable[str]) -> list[Route]:
+    """Look up route ids, ordered as a rider reads them: 9 before 29 before 501."""
+    routes = [schedule.routes[route_id] for route_id in route_ids if route_id in schedule.routes]
+    routes.sort(key=lambda route: natural_key(route.short_name))
+    return routes
+
+
+def serves(
+    schedule: Schedule,
+    stop: Stop,
+    *,
+    route_ids: frozenset[str] | None = None,
+    mode: Mode | None = None,
+) -> bool:
+    """Whether any scheduled trip calls at ``stop``, restricted to the given routes or mode."""
+    served = schedule.stop_routes.get(stop.stop_id)
+    if not served:
+        return False
+    if route_ids is not None:
+        served = served & route_ids
+    if mode is not None:
+        served = frozenset(
+            route_id
+            for route_id in served
+            if route_id in schedule.routes and schedule.routes[route_id].mode == mode
+        )
+    return bool(served)
+
+
+def _stops_by_name(schedule: Schedule) -> dict[str, list[Stop]]:
+    index: dict[str, list[Stop]] = {}
+    for stop in schedule.stops.values():
+        if stop.stop_id in schedule.stop_routes:
+            index.setdefault(normalize(stop.name), []).append(stop)
+    return index
+
+
+def _station(schedule: Schedule, stop: Stop, by_name: dict[str, list[Stop]]) -> Station:
+    siblings = [
+        other
+        for other in by_name.get(normalize(stop.name), [])
+        if other.stop_id != stop.stop_id
+        and distance_meters(stop.latitude, stop.longitude, other.latitude, other.longitude)
+        <= STATION_RADIUS_METERS
+    ]
+    platforms = (stop, *siblings)
+    route_ids = frozenset(
+        route_id
+        for platform in platforms
+        for route_id in schedule.stop_routes.get(platform.stop_id, frozenset())
+    )
+    return Station(platforms=platforms, route_ids=route_ids)
+
+
+def station_for(schedule: Schedule, stop: Stop) -> Station:
+    """The station ``stop`` belongs to."""
+    return _station(schedule, stop, _stops_by_name(schedule))
+
+
+def group_into_stations(schedule: Schedule, stops: Iterable[Stop]) -> list[Station]:
+    """Collapse ``stops`` into stations, keeping the order each station first appears."""
+    by_name = _stops_by_name(schedule)
+    seen: set[str] = set()
+    stations: list[Station] = []
+    for stop in stops:
+        if stop.stop_id in seen:
+            continue
+        station = _station(schedule, stop, by_name)
+        seen.update(station.stop_ids)
+        stations.append(station)
+    return stations
+
+
+def by_distance(stops: Iterable[Stop], latitude: float, longitude: float) -> list[Stop]:
+    """Order stops nearest first from a point."""
+    return sorted(
+        stops,
+        key=lambda stop: distance_meters(latitude, longitude, stop.latitude, stop.longitude),
+    )
+
+
 def matches_vehicle_query(vehicle: VehiclePosition, query: str) -> bool:
     """Match a vehicle query against its label, descriptor id, or entity id."""
     needle = normalize(query)
@@ -280,14 +385,14 @@ def to_vehicle_views(
     return [to_vehicle_view(vehicle, snapshot, index) for vehicle in vehicles]
 
 
-def arrivals_at_stop(
-    stop: Stop,
+def arrivals_at_stops(
+    stop_ids: frozenset[str],
     snapshot: TransitSnapshot,
     *,
     route_ids: frozenset[str] | None = None,
     mode: Mode | None = None,
 ) -> list[ArrivalView]:
-    """Predicted arrivals at one stop, soonest first."""
+    """Predicted arrivals at any of ``stop_ids`` (a station's platforms), soonest first."""
     schedule = snapshot.schedule
     now = snapshot.now
 
@@ -307,7 +412,7 @@ def arrivals_at_stop(
             continue
 
         for stop_time in update.stop_time_updates:
-            if stop_time.stop_id != stop.stop_id:
+            if stop_time.stop_id is None or stop_time.stop_id not in stop_ids:
                 continue
             if stop_time.schedule_relationship == "SKIPPED":
                 continue
@@ -320,6 +425,7 @@ def arrivals_at_stop(
 
             arrivals.append(
                 ArrivalView(
+                    stop_id=stop_time.stop_id,
                     route=_to_route_ref(route),
                     headsign=trip.headsign if trip is not None else None,
                     vehicle=(vehicle.vehicle_label if vehicle is not None else None)
@@ -343,12 +449,12 @@ def arrivals_at_stop(
 
 
 def alerts_for(
-    alerts: Iterable[ServiceAlert], stop_id: str, route_ids: frozenset[str]
+    alerts: Iterable[ServiceAlert], stop_ids: frozenset[str], route_ids: frozenset[str]
 ) -> list[ServiceAlert]:
-    """Select alerts naming this stop or any of the given routes."""
+    """Select alerts naming any of these stops or any of the given routes."""
     return [
         alert
         for alert in alerts
-        if stop_id in alert.informed_stop_ids
+        if any(stop_id in stop_ids for stop_id in alert.informed_stop_ids)
         or any(route_id in route_ids for route_id in alert.informed_route_ids)
     ]

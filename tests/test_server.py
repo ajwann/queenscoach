@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
@@ -13,9 +14,9 @@ from queenscoach.server import create_server
 from queenscoach.static_gtfs import Schedule
 from queenscoach.tools import Dependencies
 
-from .conftest import FixtureFeeds, fixture_deps
+from .conftest import fixture_deps
 
-TOOL_NAMES = {"find_vehicle", "list_vehicles", "get_arrivals"}
+TOOL_NAMES = {"list_vehicles", "list_stops", "get_arrivals"}
 
 
 async def _call(deps: Dependencies, name: str, arguments: dict[str, object]) -> CallToolResult:
@@ -25,7 +26,7 @@ async def _call(deps: Dependencies, name: str, arguments: dict[str, object]) -> 
     return result
 
 
-async def test_all_three_tools_are_registered_read_only(deps: Dependencies) -> None:
+async def test_every_tool_is_registered_read_only(deps: Dependencies) -> None:
     tools = await create_server(deps).list_tools()
     assert {tool.name for tool in tools} == TOOL_NAMES
     for tool in tools:
@@ -35,20 +36,22 @@ async def test_all_three_tools_are_registered_read_only(deps: Dependencies) -> N
         assert tool.annotations.open_world_hint is True
 
 
-async def test_get_arrivals_declares_stop_as_its_only_required_argument(
+async def test_no_tool_requires_an_argument_and_locations_are_range_checked(
     deps: Dependencies,
 ) -> None:
     tools = {tool.name: tool for tool in await create_server(deps).list_tools()}
+    for tool in tools.values():
+        assert "required" not in tool.input_schema, tool.name
     schema = tools["get_arrivals"].input_schema
-    assert schema["required"] == ["stop"]
     assert schema["properties"]["mode"]["anyOf"][0]["enum"] == ["bus", "train"]
-    assert "required" not in tools["find_vehicle"].input_schema
+    latitude = tools["list_stops"].input_schema["properties"]["latitude"]["anyOf"][0]
+    assert (latitude["minimum"], latitude["maximum"]) == (-90, 90)
 
 
 async def test_a_tool_call_returns_both_text_and_structured_content(
     deps: Dependencies,
 ) -> None:
-    result = await _call(deps, "find_vehicle", {"vehicle": "2301"})
+    result = await _call(deps, "list_vehicles", {"vehicle": "2301"})
     assert result.is_error is not True
     assert result.structured_content is not None
     assert result.structured_content["matches"] == 1
@@ -65,14 +68,16 @@ async def test_an_out_of_range_argument_is_rejected_before_the_tool_runs(
     with pytest.raises(ToolError):
         await create_server(deps).call_tool("get_arrivals", {"stop": ""})
     with pytest.raises(ToolError):
-        await create_server(deps).call_tool("find_vehicle", {"mode": "helicopter"})
+        await create_server(deps).call_tool("list_vehicles", {"mode": "helicopter"})
+    with pytest.raises(ToolError):
+        await create_server(deps).call_tool("list_stops", {"latitude": 91, "longitude": 0})
 
 
 async def test_a_feed_failure_becomes_a_readable_tool_error() -> None:
     async def load_schedule() -> Cached[Schedule]:
         raise RuntimeError("Request to https://feed.test/GTFS.zip failed: timed out")
 
-    deps = Dependencies(load_schedule=load_schedule, feeds=FixtureFeeds())
+    deps = replace(fixture_deps(), load_schedule=load_schedule)
     with pytest.raises(ToolError, match=r"CATS feed request failed: .*timed out"):
         await create_server(deps).call_tool("list_vehicles", {})
 
@@ -80,9 +85,11 @@ async def test_a_feed_failure_becomes_a_readable_tool_error() -> None:
 async def test_tool_output_is_json_serializable() -> None:
     deps = fixture_deps()
     calls: list[tuple[str, dict[str, object]]] = [
-        ("find_vehicle", {"route": "501"}),
+        ("list_vehicles", {"route": "501"}),
         ("list_vehicles", {"limit": 5}),
+        ("list_stops", {"latitude": 35.2274, "longitude": -80.8381}),
         ("get_arrivals", {"stop": "00015"}),
+        ("get_arrivals", {"latitude": 35.1071, "longitude": -80.8829, "mode": "train"}),
     ]
     for name, arguments in calls:
         result = await _call(deps, name, arguments)

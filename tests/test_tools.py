@@ -4,12 +4,20 @@ from typing import Any
 
 from queenscoach.realtime import VehiclePosition
 from queenscoach.static_gtfs import Schedule
-from queenscoach.tools import Dependencies, find_vehicle, get_arrivals, list_vehicles
+from queenscoach.tools import Dependencies, get_arrivals, list_stops, list_vehicles
 
 from .conftest import FailingAlertsFeeds, fixture_deps
 
 CHARLOTTE_LAT = (34.9, 35.7)
 CHARLOTTE_LON = (-81.2, -80.4)
+
+#: Beside the I-485 Blue Line platform (stop 00015).
+I_485_STATION = (35.1071, -80.8829)
+#: Beside the 7th St Blue Line platform (stop 00001).
+SEVENTH_ST_STATION = (35.2274, -80.8381)
+#: A route 29 bus stop, Cove Creek Dr & Barrington Dr (06530), about 1.9 km from
+#: the nearest light rail platform.
+COVE_CREEK_BUS_STOP = (35.257464, -80.751958)
 
 
 def test_static_schedule_classifies_light_rail_as_train_and_buses_as_bus(
@@ -21,10 +29,10 @@ def test_static_schedule_classifies_light_rail_as_train_and_buses_as_bus(
     assert schedule.routes["501"].long_name == "Light Rail - Lynx Blue Line"
 
 
-async def test_find_vehicle_locates_one_vehicle_in_the_charlotte_area(
+async def test_list_vehicles_locates_one_vehicle_in_the_charlotte_area(
     deps: Dependencies,
 ) -> None:
-    result = await find_vehicle(deps, vehicle="2301")
+    result = await list_vehicles(deps, vehicle="2301")
     assert result["matches"] == 1
     found: dict[str, Any] = result["vehicles"][0]
     assert found["vehicle"] == "2301"
@@ -34,52 +42,47 @@ async def test_find_vehicle_locates_one_vehicle_in_the_charlotte_area(
     assert found["mode"] == "bus"
 
 
-async def test_find_vehicle_by_route_returns_only_that_route(deps: Dependencies) -> None:
-    result = await find_vehicle(deps, route="501")
+async def test_list_vehicles_by_route_returns_only_that_route(deps: Dependencies) -> None:
+    result = await list_vehicles(deps, route="501")
     assert result["vehicles"], "expected Blue Line trains in the fixture"
     for found in result["vehicles"]:
         assert found["route"]["name"] == "501"
         assert found["mode"] == "train"
 
 
-async def test_find_vehicle_route_query_5_does_not_match_501_or_510(deps: Dependencies) -> None:
-    result = await find_vehicle(deps, route="5")
+async def test_list_vehicles_route_query_5_does_not_match_501_or_510(deps: Dependencies) -> None:
+    result = await list_vehicles(deps, route="5")
     assert result["matchedRoutes"] == ["5"]
 
 
-async def test_find_vehicle_requires_an_argument(deps: Dependencies) -> None:
-    result = await find_vehicle(deps)
-    assert "Provide" in result["error"]
-    assert "vehicles" not in result
-
-
-async def test_find_vehicle_reports_a_clear_miss_for_an_out_of_service_vehicle(
+async def test_list_vehicles_reports_a_clear_miss_for_an_out_of_service_vehicle(
     deps: Dependencies,
 ) -> None:
-    result = await find_vehicle(deps, vehicle="000-not-real")
+    result = await list_vehicles(deps, vehicle="000-not-real")
     assert result["matches"] == 0
     assert "not reporting a position" in result["message"]
 
 
-async def test_find_vehicle_lists_available_routes_when_the_route_is_unknown(
+async def test_list_vehicles_lists_available_routes_when_the_route_is_unknown(
     deps: Dependencies,
 ) -> None:
-    result = await find_vehicle(deps, route="zzz no such route")
+    result = await list_vehicles(deps, route="zzz no such route")
     assert "No route matched" in result["error"]
     # Natural ordering: 5 before 29, and both before 501.
     assert result["availableRoutes"] == ["1", "5", "29", "501", "510"]
 
 
-async def test_find_vehicle_honors_the_mode_filter(deps: Dependencies) -> None:
-    result = await find_vehicle(deps, vehicle="2301", mode="train")
+async def test_list_vehicles_honors_the_mode_filter(deps: Dependencies) -> None:
+    result = await list_vehicles(deps, vehicle="2301", mode="train")
     assert result["matches"] == 0
+    assert result["vehicles"] == []
 
 
 async def test_list_vehicles_returns_every_reporting_vehicle(
     deps: Dependencies, vehicles: list[VehiclePosition]
 ) -> None:
     result = await list_vehicles(deps)
-    assert result["totalInService"] == len(vehicles)
+    assert result["matches"] == len(vehicles)
     for listed in result["vehicles"]:
         assert isinstance(listed["latitude"], float)
         assert isinstance(listed["longitude"], float)
@@ -100,7 +103,7 @@ async def test_list_vehicles_applies_mode_filter_and_limit(
     limited = await list_vehicles(deps, limit=3)
     assert len(limited["vehicles"]) == 3
     assert limited["returned"] == 3
-    assert limited["totalInService"] == len(vehicles)
+    assert limited["matches"] == len(vehicles)
 
 
 async def test_list_vehicles_orders_routes_numerically(deps: Dependencies) -> None:
@@ -185,10 +188,106 @@ async def test_get_arrivals_still_answers_when_the_alerts_feed_fails() -> None:
     assert result["arrivals"]
 
 
-async def test_every_response_reports_feed_age(deps: Dependencies) -> None:
+async def test_every_realtime_response_reports_feed_age(deps: Dependencies) -> None:
     for result in (
-        await find_vehicle(deps, vehicle="2301"),
+        await list_vehicles(deps, vehicle="2301"),
         await list_vehicles(deps),
         await get_arrivals(deps, stop="00285"),
     ):
         assert result["feedAgeSeconds"] == 0
+
+
+async def test_get_arrivals_uses_the_nearest_station_to_a_location(deps: Dependencies) -> None:
+    result = await get_arrivals(deps, latitude=I_485_STATION[0], longitude=I_485_STATION[1])
+    assert result["stop"]["stopId"] == "00015"
+    assert result["stop"]["metersAway"] < 50
+    assert result["arrivals"], "expected Blue Line arrivals at I-485"
+    for arrival in result["arrivals"]:
+        assert arrival["stopId"] == "00015"
+
+
+async def test_get_arrivals_near_a_location_prefers_a_stop_the_requested_mode_serves(
+    deps: Dependencies,
+) -> None:
+    latitude, longitude = COVE_CREEK_BUS_STOP
+    any_mode = await get_arrivals(deps, latitude=latitude, longitude=longitude)
+    assert any_mode["stop"]["stopId"] == "06530"
+
+    trains = await get_arrivals(deps, latitude=latitude, longitude=longitude, mode="train")
+    assert trains["stop"]["name"].endswith("Station")
+    assert trains["stop"]["metersAway"] > 1_000
+    for arrival in trains["arrivals"]:
+        assert arrival["route"]["mode"] == "train"
+
+
+async def test_get_arrivals_merges_the_platforms_of_one_station(deps: Dependencies) -> None:
+    result = await get_arrivals(deps, stop="CTC/Arena CityLYNX")
+    assert result["stop"]["platformStopIds"] == ["51000", "51001"]
+    assert "otherStopsMatchingQuery" not in result, "a sibling platform is not another match"
+
+
+async def test_get_arrivals_rejects_a_missing_partial_or_doubled_location(
+    deps: Dependencies,
+) -> None:
+    neither = await get_arrivals(deps)
+    assert "Provide" in neither["error"]
+    partial = await get_arrivals(deps, latitude=35.2)
+    assert "together" in partial["error"]
+    both = await get_arrivals(deps, stop="00015", latitude=35.2, longitude=-80.8)
+    assert "not both" in both["error"]
+
+
+async def test_get_arrivals_refuses_a_location_far_from_charlotte(deps: Dependencies) -> None:
+    result = await get_arrivals(deps, latitude=40.7128, longitude=-74.0060, mode="train")
+    assert "within 50 km" in result["error"]
+    assert "arrivals" not in result
+
+
+async def test_list_stops_finds_the_closest_station_with_its_line(deps: Dependencies) -> None:
+    latitude, longitude = SEVENTH_ST_STATION
+    result = await list_stops(deps, latitude=latitude, longitude=longitude, mode="train")
+    closest = result["stations"][0]
+    assert closest["name"] == "7th St Station"
+    assert closest["modes"] == ["train"]
+    assert [route["longName"] for route in closest["routes"]] == ["Light Rail - Lynx Blue Line"]
+    distances = [station["metersAway"] for station in result["stations"]]
+    assert distances == sorted(distances)
+    assert result["returned"] == 10, "a location query defaults to the ten nearest"
+
+
+async def test_list_stops_reports_the_bus_routes_serving_a_stop(deps: Dependencies) -> None:
+    latitude, longitude = COVE_CREEK_BUS_STOP
+    result = await list_stops(deps, latitude=latitude, longitude=longitude, limit=1)
+    closest = result["stations"][0]
+    assert closest["stopIds"] == ["06530"]
+    assert [route["name"] for route in closest["routes"]] == ["29"]
+    assert closest["modes"] == ["bus"]
+
+
+async def test_list_stops_groups_same_named_platforms(deps: Dependencies) -> None:
+    result = await list_stops(deps, query="CTC/Arena")
+    assert result["totalMatching"] == 1
+    assert result["stations"][0]["stopIds"] == ["51000", "51001"]
+
+
+async def test_list_stops_without_a_location_lists_every_served_stop_by_name(
+    deps: Dependencies, schedule: Schedule
+) -> None:
+    result = await list_stops(deps, route="Gold Line")
+    assert result["matchedRoutes"] == ["510"]
+    names = [station["name"] for station in result["stations"]]
+    assert names, "expected Gold Line stops"
+    assert "metersAway" not in result["stations"][0]
+    served = {stop_id for stop_id, routes in schedule.stop_routes.items() if "510" in routes}
+    listed = {stop_id for station in result["stations"] for stop_id in station["stopIds"]}
+    assert listed == served
+
+
+async def test_list_stops_explains_an_empty_result(deps: Dependencies) -> None:
+    far = await list_stops(deps, latitude=40.7128, longitude=-74.0060)
+    assert far["stations"] == []
+    assert "Charlotte" in far["message"]
+    unknown = await list_stops(deps, route="zzz no such route")
+    assert "No route matched" in unknown["error"]
+    partial = await list_stops(deps, longitude=-80.8)
+    assert "together" in partial["error"]
