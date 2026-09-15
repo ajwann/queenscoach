@@ -16,7 +16,15 @@ from queenscoach.tools import Dependencies
 
 from .conftest import fixture_deps
 
-TOOL_NAMES = {"list_vehicles", "list_stops", "get_arrivals"}
+TOOL_NAMES = {
+    "list_vehicles",
+    "list_stops",
+    "get_arrivals",
+    "get_schedule",
+    "get_route",
+    "get_service_alerts",
+    "plan_trip",
+}
 
 
 async def _call(deps: Dependencies, name: str, arguments: dict[str, object]) -> CallToolResult:
@@ -36,12 +44,15 @@ async def test_every_tool_is_registered_read_only(deps: Dependencies) -> None:
         assert tool.annotations.open_world_hint is True
 
 
-async def test_no_tool_requires_an_argument_and_locations_are_range_checked(
+async def test_only_get_route_requires_an_argument_and_locations_are_range_checked(
     deps: Dependencies,
 ) -> None:
     tools = {tool.name: tool for tool in await create_server(deps).list_tools()}
     for tool in tools.values():
-        assert "required" not in tool.input_schema, tool.name
+        if tool.name == "get_route":
+            assert tool.input_schema["required"] == ["route"]
+        else:
+            assert "required" not in tool.input_schema, tool.name
     schema = tools["get_arrivals"].input_schema
     assert schema["properties"]["mode"]["anyOf"][0]["enum"] == ["bus", "train"]
     latitude = tools["list_stops"].input_schema["properties"]["latitude"]["anyOf"][0]
@@ -71,6 +82,12 @@ async def test_an_out_of_range_argument_is_rejected_before_the_tool_runs(
         await create_server(deps).call_tool("list_vehicles", {"mode": "helicopter"})
     with pytest.raises(ToolError):
         await create_server(deps).call_tool("list_stops", {"latitude": 91, "longitude": 0})
+    with pytest.raises(ToolError):
+        await create_server(deps).call_tool("get_schedule", {"stop": "00001", "date": "tomorrow"})
+    with pytest.raises(ToolError):
+        await create_server(deps).call_tool(
+            "plan_trip", {"origin_stop": "00090", "destination_stop": "00002", "max_transfers": 9}
+        )
 
 
 async def test_a_feed_failure_becomes_a_readable_tool_error() -> None:
@@ -90,6 +107,10 @@ async def test_tool_output_is_json_serializable() -> None:
         ("list_stops", {"latitude": 35.2274, "longitude": -80.8381}),
         ("get_arrivals", {"stop": "00015"}),
         ("get_arrivals", {"latitude": 35.1071, "longitude": -80.8829, "mode": "train"}),
+        ("get_schedule", {"stop": "7th St Station", "date": "2026-09-08", "limit": 3}),
+        ("get_route", {"route": "Blue Line"}),
+        ("get_service_alerts", {}),
+        ("plan_trip", {"origin_stop": "00090", "destination_stop": "51016"}),
     ]
     for name, arguments in calls:
         result = await _call(deps, name, arguments)

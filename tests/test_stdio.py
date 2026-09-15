@@ -14,7 +14,15 @@ import sys
 
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
-EXPECTED_TOOLS = {"list_vehicles", "list_stops", "get_arrivals"}
+EXPECTED_TOOLS = {
+    "list_vehicles",
+    "list_stops",
+    "get_arrivals",
+    "get_schedule",
+    "get_route",
+    "get_service_alerts",
+    "plan_trip",
+}
 
 #: Modules a stdio server must never load: the HTTP transport and everything
 #: behind it, including the optional Firestore dependency.

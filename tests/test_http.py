@@ -243,7 +243,15 @@ async def test_a_google_sign_in_yields_a_token_that_opens_the_tools() -> None:
         assert listed.status_code == 200, listed.text
 
     tools = _sse_payload(listed.text)["result"]["tools"]
-    assert {tool["name"] for tool in tools} == {"list_vehicles", "list_stops", "get_arrivals"}
+    assert {tool["name"] for tool in tools} == {
+        "list_vehicles",
+        "list_stops",
+        "get_arrivals",
+        "get_schedule",
+        "get_route",
+        "get_service_alerts",
+        "plan_trip",
+    }
 
 
 async def test_a_denied_google_account_never_reaches_the_token_endpoint() -> None:
@@ -309,7 +317,15 @@ async def test_a_token_from_one_instance_opens_the_tools_on_another_sharing_its_
     assert listed.status_code == 200, listed.text
     assert "mcp-session-id" not in listed.headers
     tools = _sse_payload(listed.text)["result"]["tools"]
-    assert {tool["name"] for tool in tools} == {"list_vehicles", "list_stops", "get_arrivals"}
+    assert {tool["name"] for tool in tools} == {
+        "list_vehicles",
+        "list_stops",
+        "get_arrivals",
+        "get_schedule",
+        "get_route",
+        "get_service_alerts",
+        "plan_trip",
+    }
 
 
 def test_a_firestore_store_without_credentials_refuses_to_start(

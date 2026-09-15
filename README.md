@@ -68,14 +68,86 @@ give it the same URL and it discovers the rest.
 
 | Tool | Purpose |
 | --- | --- |
-| `list_vehicles` | GPS positions of buses and trains in service: one by number, a route's, or all of them. |
+| `plan_trip` | Trips between two places by bus and train, with walking and transfers, adjusted by live delays. |
+| `get_arrivals` | Live predicted arrivals at a named stop, or at the station nearest a location. |
+| `get_schedule` | The published timetable at a stop for any date: departures, first and last trips. |
+| `get_route` | One route on a date: destinations, stops in order, hours, and how often it runs. |
+| `get_service_alerts` | Current and upcoming detours and disruptions, system-wide or for a route, stop, or place. |
 | `list_stops` | Stops and stations with the routes serving each, nearest first from a location. |
-| `get_arrivals` | Estimated arrival times at a named stop, or at the station nearest a location. |
+| `list_vehicles` | GPS positions of buses and trains in service: one by number, a route's, or all of them. |
 
-Ask Claude "what's the closest train station to me?" or "when's the next train at my
-stop?" and it passes your device's location to `list_stops` or `get_arrivals`. The
-server never sees a location it isn't handed, so this needs a client that shares the
-device's location with the model.
+Ask Claude "what's the closest train station to me?", "when's the next train at my
+stop?", or "how do I get to the airport from here?" and it passes your device's
+location to the tools. The server never sees a location it isn't handed, so this
+needs a client that shares the device's location with the model.
+
+### `plan_trip`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `origin_stop` | string | Where to start: a stop id, code, or name. |
+| `origin_latitude`, `origin_longitude` | number | Or start from a location, walking to nearby stops. |
+| `destination_stop` | string | Where to go: a stop id, code, or name. |
+| `destination_latitude`, `destination_longitude` | number | Or finish at a location. |
+| `date` | `YYYY-MM-DD` | Service date in Charlotte (default today). |
+| `depart_at` | `HH:MM` | Leave no earlier than this. Default: now. |
+| `arrive_by` | `HH:MM` | Or arrive no later than this. |
+| `max_transfers` | integer | 0 to 3 (default 2). |
+| `max_walk_meters` | integer | Longest walk to the first stop or from the last, 100 to 2000 (default 800). |
+
+Returns up to three itineraries, each with walking and riding legs: the route, the
+vehicle's real destination, where to board and get off, times, the wait at each
+transfer, and stops travelled. Journeys with more transfers are offered only when they
+arrive sooner (or, for `arrive_by`, leave later). For trips starting within three hours
+of now, rides carry live delays and are marked `live`. `walkingIsAnOption` appears when
+the two places are within the walking limit of each other.
+
+Walking is an estimate: the straight-line distance stretched by 30%, at 4.5 km/h. The
+feed has no street map, so real walks can be longer. Transfers allow up to 400 m on foot
+and two minutes of slack.
+
+### `get_schedule`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `stop` | string | Stop id, code, or name. |
+| `latitude`, `longitude` | number | Or the nearest stop serving the route or mode. |
+| `route` | string | Optional route filter. |
+| `mode` | `bus` \| `train` | Optional filter. |
+| `date` | `YYYY-MM-DD` | Service date (default today). |
+| `after`, `before` | `HH:MM` | Time window. `after` defaults to now today, or the start of service. |
+| `limit` | integer | Max departures (default 20, cap 100). |
+
+Scheduled departures with each trip's route and destination, plus `firstDeparture`
+and `lastDeparture` for the day. A service day runs past midnight, as GTFS does: the
+last trains of Tuesday leave at 1:31 am on Wednesday, and `25:30` in `after` or `before`
+means 1:30 am that night. Use `get_arrivals` for live predictions.
+
+### `get_route`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `route` | string | **Required.** `9`, `501`, `Blue Line`, `Airport`. |
+| `date` | `YYYY-MM-DD` | Service date (default today). |
+
+For each direction: the destination, the stops in order (following the pattern most
+trips use, with any others summarized), first and last departure, and the typical
+minutes between trips in the early morning, morning rush, midday, afternoon rush,
+evening, and late night. Also trips on each of the next seven days and the number of
+active alerts. A query matching several routes lists them instead.
+
+### `get_service_alerts`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `route` | string | Alerts naming the route or any stop it serves. |
+| `stop` | string | Alerts naming the station or any route serving it. |
+| `latitude`, `longitude` | number | Alerts affecting stops within 800 m. |
+
+Give at most one; with none, every alert. Ended alerts are left out. Each alert has its
+headline, description, effect and cause with CATS's detail text, whether it is
+`active` or `upcoming`, its periods (`untilFurtherNotice` for open-ended ones), and the
+routes and stops it names.
 
 ### `list_vehicles`
 
@@ -338,7 +410,17 @@ Verified against live feed captures:
 - If a refresh fails but cached data exists, the last good data is served rather than
   an error. `feedAgeSeconds` on every response shows how stale it is.
 - The alerts feed is supplementary: if it fails, `get_arrivals` still returns arrivals.
-- Times are ISO 8601 UTC; coordinates are WGS84 decimal degrees.
+- The timetable answers only the dates CATS has published, typically a few weeks ahead.
+  Timetable tools report the range as `scheduleCovers` and refuse a date outside it
+  rather than guessing.
+- Headsigns that name only a direction ("Inbound", used by 61 of 64 CATS routes) are
+  replaced by the trip's real destination, its last stop.
+- Timetable clock times follow GTFS: counted from noon minus 12 hours on the service
+  date in the agency's time zone, so they stay right across daylight-saving changes.
+- Trip planning and timetable scans run in a worker thread, so a long search does not
+  stall other requests.
+- Times are ISO 8601 with a UTC offset: the realtime tools use UTC and the timetable
+  tools Charlotte local time. Coordinates are WGS84 decimal degrees.
 
 ## Configuration
 
@@ -398,9 +480,11 @@ One of the three allow-list settings is required; see above.
 | `feed_http.py` | Bounded, time-limited HTTP fetch |
 | `cache.py` | TTL cache with single-flight refresh |
 | `gtfs_csv.py` | GTFS-flavored CSV reading |
-| `static_gtfs.py` | Static schedule: routes, stops, trips, and the routes serving each stop |
+| `static_gtfs.py` | Static schedule: routes, stops, trips, their timetables, and the service calendar |
 | `realtime.py` | GTFS-Realtime protobuf decoding |
 | `transit.py` | Domain layer: joins realtime to schedule, resolves queries |
+| `timetable.py` | Domain layer for the published timetable: service days, departures, route patterns |
+| `planner.py` | Trip planning: a Connection Scan over the timetable, with live delays |
 | `tools.py` | The tools' behavior and JSON payloads |
 | `resources.py` | The GTFS feeds as MCP resources |
 | `server.py` | MCP tool and resource registration, and schemas |

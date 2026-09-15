@@ -57,6 +57,22 @@ def test_alerts_decode_english_text_and_informed_entities(alerts: list[ServiceAl
     assert alert.informed_stop_ids == ("45726",)
 
 
+def test_alerts_decode_when_they_apply_and_their_detail_text(alerts: list[ServiceAlert]) -> None:
+    detour = alerts[0]
+    assert detour.effect_detail == "Detour"
+    assert detour.cause_detail == "Construction"
+    (period,) = detour.active_periods
+    assert period.start == 1_763_319_660
+    assert detour.is_active(1_788_904_788)
+    assert not detour.is_active(1_700_000_000), "before its start"
+    assert not detour.has_ended(1_788_904_788)
+
+    maintenance = alerts[3]
+    (window,) = maintenance.active_periods
+    assert window.end == 1_788_907_800
+    assert maintenance.has_ended(1_788_907_800)
+
+
 def test_an_empty_feed_decodes_to_no_entities() -> None:
     assert decode_vehicle_positions(b"") == []
     assert decode_trip_updates(b"") == []
