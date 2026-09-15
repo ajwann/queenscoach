@@ -14,7 +14,8 @@ tier.
 
 Re-running the script is safe, and it is also how you update: it finds the
 project by its `app=queenscoach` label, reuses everything that already exists, and
-redeploys the checkout you run it from.
+redeploys the checkout you run it from. It does not remember your settings, though;
+see [Update and remove](#update-and-remove).
 
 This is only for the **hosted HTTP server**. To run the server on your own
 machine for one MCP client, use stdio instead (`pip install queenscoach` or
@@ -205,8 +206,8 @@ those by hand, deliberately.
 A personal server normally costs nothing: Cloud Run, Firestore, Secret Manager,
 Artifact Registry, Cloud Build, and Pub/Sub all have free tiers well above what
 it uses. The service scales to zero between uses, and the first call after an
-idle spell waits a few seconds while an instance starts and downloads the static
-schedule.
+idle spell waits a few seconds while an instance starts, downloads the static
+schedule, and parses its timetable.
 
 ### The spend cap
 
@@ -268,6 +269,31 @@ claude mcp add --transport http queenscoach https://queenscoach-123456789012.us-
 ```bash
 git pull && scripts/deploy-gcp.sh     # rebuild and redeploy the current checkout
 scripts/deploy-gcp.sh --teardown      # delete the whole project, after confirming
+```
+
+**Pass the same settings on every run.** The script keeps only the client secret,
+in Secret Manager; everything else comes from the environment each time, and an
+unset value means its default. So a bare re-run prompts again for the client ID and
+allow list, and it also changes a working server:
+
+- Without `QUEENSCOACH_DOMAIN`, the public URL goes back to `run.app`, and clients
+  connected at the custom domain stop working.
+- Without `QUEENSCOACH_SPEND_CAP=true`, the budget stops feeding the spend cap.
+- Without `QUEENSCOACH_GCP_PROJECT`, a project not labeled `app=queenscoach` (a
+  shared one you created yourself) is not found, and a new project is created.
+- `QUEENSCOACH_BUDGET_USD` and `QUEENSCOACH_GCP_MAX_INSTANCES` return to `5` and `1`.
+
+The client ID and allow list are visible on the running service
+(`gcloud run services describe <service> --region <region> --project <project>`).
+An update for a public server on its own domain, in a shared project, looks like:
+
+```bash
+QUEENSCOACH_GCP_PROJECT=my-project \
+QUEENSCOACH_DOMAIN=mcp.example.com \
+QUEENSCOACH_GOOGLE_CLIENT_ID=1234-abcd.apps.googleusercontent.com \
+QUEENSCOACH_ALLOW_ANY_GOOGLE_ACCOUNT=true \
+QUEENSCOACH_SPEND_CAP=true \
+scripts/deploy-gcp.sh --non-interactive
 ```
 
 A teardown is recoverable for 30 days (`gcloud projects undelete`); after that

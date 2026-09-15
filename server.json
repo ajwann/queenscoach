@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ajwann/queenscoach",
   "title": "Charlotte Area Transit (CATS)",
-  "description": "Live CATS bus and light rail positions and arrival predictions from the agency's GTFS-Realtime feeds",
+  "description": "CATS bus and light rail trip planning, live arrivals, timetables, routes, and service alerts",
   "version": "2.1.0",
   "websiteUrl": "https://github.com/ajwann/queenscoach",
   "repository": {
