@@ -58,7 +58,7 @@ async def test_the_static_index_describes_every_archive_file(deps: Dependencies)
     assert mime_type == "application/json"
     index = json.loads(text)
     assert index["source"] == "https://feed.test/GTFS.zip"
-    assert index["fetchedAt"] == "2026-09-08T21:59:48.000Z"
+    assert index["fetchedAt"] == "2026-09-08T17:59:48-04:00"
     names = {entry["name"] for entry in index["files"]}
     assert names == {
         "agency.txt",

@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from . import planner
 from .cache import Cached
@@ -125,7 +126,7 @@ def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
 
 
-def _vehicle_json(view: VehicleView) -> dict[str, Any]:
+def _vehicle_json(view: VehicleView, zone: ZoneInfo) -> dict[str, Any]:
     next_stop = view.next_stop
     return _drop_none(
         {
@@ -139,7 +140,7 @@ def _vehicle_json(view: VehicleView) -> dict[str, Any]:
             "bearingDegrees": view.bearing_degrees,
             "speedMph": view.speed_mph,
             "occupancy": view.occupancy,
-            "reportedAt": view.reported_at,
+            "reportedAt": None if view.reported_at is None else iso_local(view.reported_at, zone),
             "positionAgeSeconds": view.position_age_seconds,
             "nextStop": None
             if next_stop is None
@@ -147,7 +148,7 @@ def _vehicle_json(view: VehicleView) -> dict[str, Any]:
                 {
                     "stopId": next_stop.stop_id,
                     "name": next_stop.name,
-                    "arrivalTime": next_stop.arrival_time,
+                    "arrivalTime": iso_local(next_stop.arrival_time, zone),
                     "minutesAway": next_stop.minutes_away,
                 }
             ),
@@ -155,7 +156,7 @@ def _vehicle_json(view: VehicleView) -> dict[str, Any]:
     )
 
 
-def _arrival_json(arrival: ArrivalView) -> dict[str, Any]:
+def _arrival_json(arrival: ArrivalView, zone: ZoneInfo) -> dict[str, Any]:
     position = arrival.vehicle_position
     return _drop_none(
         {
@@ -164,9 +165,11 @@ def _arrival_json(arrival: ArrivalView) -> dict[str, Any]:
             "headsign": arrival.headsign,
             "vehicle": arrival.vehicle,
             "tripId": arrival.trip_id,
-            "arrivalTime": arrival.arrival_time,
+            "arrivalTime": iso_local(arrival.arrival_time, zone),
             "minutesAway": arrival.minutes_away,
-            "scheduledArrivalTime": arrival.scheduled_arrival_time,
+            "scheduledArrivalTime": None
+            if arrival.scheduled_arrival_time is None
+            else iso_local(arrival.scheduled_arrival_time, zone),
             "scheduleDeviationMinutes": arrival.schedule_deviation_minutes,
             "vehiclePosition": None
             if position is None
@@ -285,7 +288,7 @@ async def list_vehicles(
             "returned": min(len(views), capped),
             "countsByMode": counts,
             "matchedRoutes": matched_routes,
-            "vehicles": [_vehicle_json(view) for view in views[:capped]],
+            "vehicles": [_vehicle_json(view, state.schedule.zone) for view in views[:capped]],
             "message": message,
             "feedAgeSeconds": state.feed_age_seconds,
         }
@@ -527,7 +530,7 @@ async def get_arrivals(
             "otherStopsMatchingQuery": located.other_matches or None,
             "matchedRoutes": None if routes is None else [known.short_name for known in routes],
             "arrivalCount": len(arrivals),
-            "arrivals": [_arrival_json(arrival) for arrival in arrivals[:capped]],
+            "arrivals": [_arrival_json(arrival, schedule.zone) for arrival in arrivals[:capped]],
             "message": None
             if arrivals
             else "No realtime arrivals are predicted for this stop right now.",

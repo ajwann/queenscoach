@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
@@ -99,7 +102,23 @@ async def test_a_feed_failure_becomes_a_readable_tool_error() -> None:
         await create_server(deps).call_tool("list_vehicles", {})
 
 
-async def test_tool_output_is_json_serializable() -> None:
+EASTERN = ZoneInfo("America/New_York")
+
+#: An ISO 8601 date-time, with whatever offset it carries.
+_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$")
+
+
+def _timestamps(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value] if _TIMESTAMP.match(value) else []
+    if isinstance(value, dict):
+        return [found for item in value.values() for found in _timestamps(item)]
+    if isinstance(value, list):
+        return [found for item in value for found in _timestamps(item)]
+    return []
+
+
+async def test_tool_output_is_json_serializable_with_every_time_in_eastern() -> None:
     deps = fixture_deps()
     calls: list[tuple[str, dict[str, object]]] = [
         ("list_vehicles", {"route": "501"}),
@@ -112,6 +131,16 @@ async def test_tool_output_is_json_serializable() -> None:
         ("get_service_alerts", {}),
         ("plan_trip", {"origin_stop": "00090", "destination_stop": "51016"}),
     ]
+    reporting_times: set[str] = set()
     for name, arguments in calls:
         result = await _call(deps, name, arguments)
         json.dumps(result.structured_content)
+        for stamp in _timestamps(result.structured_content):
+            reporting_times.add(name)
+            parsed = datetime.fromisoformat(stamp)
+            assert parsed.tzinfo is not None, f"{name} returned {stamp} without an offset"
+            # The offset must be Eastern's on that date: -04:00 in summer, -05:00 in winter.
+            eastern = parsed.astimezone(EASTERN)
+            assert parsed.utcoffset() == eastern.utcoffset(), f"{name} returned {stamp}"
+    # list_stops is the one tool with no times in its answer.
+    assert reporting_times == TOOL_NAMES - {"list_stops"}

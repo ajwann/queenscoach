@@ -8,7 +8,6 @@ import math
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Literal
 
 from .realtime import ServiceAlert, TripUpdate, VehiclePosition
@@ -36,7 +35,8 @@ class ResolvedRouteRef:
 class NextStop:
     stop_id: str
     name: str | None
-    arrival_time: str
+    #: Unix seconds; formatted in the agency's local time when reported.
+    arrival_time: int
     minutes_away: int
 
 
@@ -53,7 +53,8 @@ class VehicleView:
     bearing_degrees: float | None
     speed_mph: float | None
     occupancy: str | None
-    reported_at: str | None
+    #: Unix seconds.
+    reported_at: int | None
     position_age_seconds: int | None
     next_stop: NextStop | None
 
@@ -84,9 +85,10 @@ class ArrivalView:
     headsign: str | None
     vehicle: str | None
     trip_id: str | None
-    arrival_time: str
+    #: Unix seconds, predicted and scheduled.
+    arrival_time: int
     minutes_away: int
-    scheduled_arrival_time: str | None
+    scheduled_arrival_time: int | None
     #: Positive means running late. ``None`` when the feed gives no schedule.
     schedule_deviation_minutes: int | None
     vehicle_position: tuple[float, float] | None
@@ -119,17 +121,6 @@ def natural_key(text: str) -> tuple[tuple[int, int, str], ...]:
         for part in re.split(r"(\d+)", text)
         if part
     )
-
-
-def iso_time(epoch_seconds: float) -> str:
-    """Format Unix seconds as an ISO 8601 UTC timestamp, e.g. ``2026-01-09T14:03:00.000Z``."""
-    stamp = datetime.fromtimestamp(epoch_seconds, tz=UTC)
-    return stamp.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-def to_iso_time(epoch_seconds: float | None) -> str | None:
-    """Like :func:`iso_time`, but passes ``None`` through."""
-    return None if epoch_seconds is None else iso_time(epoch_seconds)
 
 
 def _minutes_between(epoch_seconds: float, now: float) -> int:
@@ -352,7 +343,7 @@ def to_vehicle_view(
                 if upcoming.stop_id in schedule.stops
                 else None
             ),
-            arrival_time=iso_time(upcoming.arrival_time),
+            arrival_time=upcoming.arrival_time,
             minutes_away=_minutes_between(upcoming.arrival_time, snapshot.now),
         )
     )
@@ -369,7 +360,7 @@ def to_vehicle_view(
         bearing_degrees=vehicle.bearing_degrees,
         speed_mph=None if speed is None else round(speed * _METERS_PER_SECOND_TO_MPH, 1),
         occupancy=vehicle.occupancy_status,
-        reported_at=to_iso_time(vehicle.timestamp),
+        reported_at=vehicle.timestamp,
         position_age_seconds=(
             None if vehicle.timestamp is None else max(0, round(snapshot.now - vehicle.timestamp))
         ),
@@ -431,9 +422,9 @@ def arrivals_at_stops(
                     vehicle=(vehicle.vehicle_label if vehicle is not None else None)
                     or update.vehicle_label,
                     trip_id=update.trip_id,
-                    arrival_time=iso_time(arrival_time),
+                    arrival_time=arrival_time,
                     minutes_away=_minutes_between(arrival_time, now),
-                    scheduled_arrival_time=to_iso_time(scheduled),
+                    scheduled_arrival_time=scheduled,
                     # The feed omits `delay`, so deviation is derived from the two stamps.
                     schedule_deviation_minutes=(
                         None if scheduled is None else round((arrival_time - scheduled) / 60)

@@ -49,7 +49,8 @@ _CALENDAR_DATES_FILE = "calendar_dates.txt"
 _AGENCY_FILE = "agency.txt"
 _WEEKDAY_COLUMNS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
-#: CATS's own zone, used only when agency.txt is absent or names no valid zone.
+#: CATS's own zone, Eastern time. The timetable uses agency.txt's zone when it names a
+#: valid one, and this otherwise; resources report their fetch times in it.
 DEFAULT_TIMEZONE = "America/New_York"
 
 #: GTFS pickup_type / drop_off_type 1: no pickup, or no drop-off, at this call.

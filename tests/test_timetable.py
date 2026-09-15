@@ -38,6 +38,25 @@ def test_on_a_daylight_saving_change_clock_times_still_count_from_noon_minus_twe
 
 
 @pytest.mark.parametrize(
+    ("epoch", "expected"),
+    [
+        (1_788_904_788, "2026-09-08T17:59:48-04:00"),  # summer: Eastern Daylight Time
+        (1_797_897_600, "2026-12-21T19:00:00-05:00"),  # winter: Eastern Standard Time
+        # 1 November 2026: 1:30 am happens twice as clocks fall back.
+        (1_793_511_000, "2026-11-01T01:30:00-04:00"),
+        (1_793_514_600, "2026-11-01T01:30:00-05:00"),
+        # 14 March 2027: clocks spring forward from 2:00 straight to 3:00.
+        (1_805_007_540, "2027-03-14T01:59:00-05:00"),
+        (1_805_007_600, "2027-03-14T03:00:00-04:00"),
+    ],
+)
+def test_times_are_reported_in_eastern_across_daylight_saving_changes(
+    epoch: int, expected: str
+) -> None:
+    assert iso_local(epoch, CHARLOTTE) == expected
+
+
+@pytest.mark.parametrize(
     ("raw", "seconds"),
     [("08:30", 30600), ("8:05", 29100), ("25:15", 90900), ("24:60", None), ("x", None)],
 )

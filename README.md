@@ -216,7 +216,8 @@ The feeds behind the tools, for clients and models that want the data itself.
 
 Static tables come from the same cached download the tools use. Realtime resources
 are the decoded feed entities with their GTFS-Realtime field names, raw ids, and Unix
-timestamps, without the schedule joins the tools add. `stop_times.txt` is large
+timestamps, without the schedule joins the tools add. Each resource's `fetchedAt` is
+Eastern time, like the tools. `stop_times.txt` is large
 (about 12 MB in the live feed).
 
 ## Install
@@ -440,9 +441,10 @@ Verified against live feed captures:
   a slow one does not stall other requests. The first call after the schedule is
   downloaded waits a second or so for it to parse; a trip search then takes well
   under a second.
-- Times in responses are ISO 8601 with a UTC offset: `list_vehicles` and
-  `get_arrivals` use UTC, and `plan_trip`, `get_schedule`, `get_route`, and
-  `get_service_alerts` use Charlotte local time. Coordinates are WGS84 decimal degrees.
+- Every time in a tool response is Eastern time (`America/New_York`), ISO 8601 with
+  the offset in effect on that date: `2026-09-08T17:59:48-04:00` during daylight saving
+  time, `2026-12-21T19:00:00-05:00` otherwise. The two 1:30 am's on the night clocks
+  fall back are told apart by their offsets. Coordinates are WGS84 decimal degrees.
 
 ## Configuration
 
