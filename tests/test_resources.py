@@ -60,7 +60,14 @@ async def test_the_static_index_describes_every_archive_file(deps: Dependencies)
     assert index["source"] == "https://feed.test/GTFS.zip"
     assert index["fetchedAt"] == "2026-09-08T21:59:48.000Z"
     names = {entry["name"] for entry in index["files"]}
-    assert names == {"routes.txt", "stops.txt", "trips.txt", "stop_times.txt"}
+    assert names == {
+        "agency.txt",
+        "calendar_dates.txt",
+        "routes.txt",
+        "stops.txt",
+        "trips.txt",
+        "stop_times.txt",
+    }
     for entry in index["files"]:
         assert entry["uri"] == f"gtfs://static/{entry['name']}"
         assert entry["bytes"] > 0
@@ -79,20 +86,22 @@ async def test_the_table_template_serves_files_beyond_the_core_tables() -> None:
     with zipfile.ZipFile(io.BytesIO(ARCHIVE)) as source, zipfile.ZipFile(buffer, "w") as target:
         for info in source.infolist():
             target.writestr(info, source.read(info))
-        target.writestr("agency.txt", "agency_id,agency_name\nCATS,Charlotte Area Transit\n")
+        target.writestr(
+            "feed_info.txt", "feed_publisher_name,feed_lang\nCharlotte Area Transit,en\n"
+        )
     archive = buffer.getvalue()
 
     async def load_archive() -> Cached[bytes]:
         return Cached(value=archive, fetched_at=0)
 
     deps = replace(fixture_deps(), load_archive=load_archive)
-    text, mime_type = await _read(deps, "gtfs://static/agency.txt")
+    text, mime_type = await _read(deps, "gtfs://static/feed_info.txt")
     assert mime_type == "text/csv"
     assert "Charlotte Area Transit" in text
 
 
 @pytest.mark.parametrize(
-    "uri", ["gtfs://static/agency.txt", "gtfs://static/..%2Fstops.txt", "gtfs://static/%2Fetc"]
+    "uri", ["gtfs://static/shapes.txt", "gtfs://static/..%2Fstops.txt", "gtfs://static/%2Fetc"]
 )
 async def test_an_unknown_or_unsafe_table_name_is_not_found(deps: Dependencies, uri: str) -> None:
     with pytest.raises(ResourceNotFoundError):
