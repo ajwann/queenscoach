@@ -24,6 +24,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import pairwise
+from typing import TypeAlias
 
 from .realtime import TripUpdate
 from .static_gtfs import Schedule
@@ -126,7 +127,8 @@ class Itinerary:
 
 
 #: Per-call live delay in seconds for a trip on a service date.
-LiveDelays = dict[tuple[str, date], array[int]]
+# Quoted: array only accepts a type argument at runtime from Python 3.12.
+LiveDelays: TypeAlias = "dict[tuple[str, date], array[int]]"
 
 
 def live_delays(schedule: Schedule, updates: Iterable[TripUpdate], now: float) -> LiveDelays:
