@@ -4,10 +4,12 @@
 
 [![CI](https://github.com/ajwann/queenscoach/actions/workflows/ci.yml/badge.svg)](https://github.com/ajwann/queenscoach/actions/workflows/ci.yml)
 
-**QueensCoach** is an MCP server for live **Charlotte Area Transit System (CATS)** bus
-and light rail data, built on the agency's public GTFS-Realtime feeds. It runs over
-**stdio**, launched by the MCP client that uses it, or over **HTTP** with Google OAuth
-in front of it, for a hosted server. Both transports serve the same tools.
+**QueensCoach** is an MCP server for **Charlotte Area Transit System (CATS)** buses
+and light rail, built on the agency's public GTFS schedule and GTFS-Realtime feeds. It
+plans trips, predicts arrivals, reads the timetable, describes routes, and reports
+service alerts. It runs over **stdio**, launched by the MCP client that uses it, or over
+**HTTP** with Google OAuth in front of it, for a hosted server. Both transports serve
+the same tools and resources.
 
 ## Hosted server
 
@@ -24,7 +26,8 @@ with [`deploy/GCP.md`](deploy/GCP.md).
 
 Signing in tells the server your Google account's email address, which is used only
 to decide whether to admit you, and is never stored. The tokens it issues record
-your account's opaque Google ID and nothing else about you. The
+your account's opaque Google ID and nothing else about you. A location you share with
+a tool arrives as an argument to that call, is used to answer it, and is not stored. The
 [privacy policy](https://adamwanninger.com/privacy/) and
 [terms of service](https://adamwanninger.com/terms/) cover the hosted server.
 
@@ -42,7 +45,7 @@ Claude's paid plans.
    automatically.
 4. Click **Add**, then **Connect** on the connector that appears. A browser window
    opens for the Google sign-in; approve it and it closes itself.
-5. In a chat, open the tools menu and check that QueensCoach is enabled. Its three
+5. In a chat, open the tools menu and check that QueensCoach is enabled. Its seven
    tools then appear.
 
 The connector belongs to your Claude account, so it follows you across web, desktop,
@@ -68,42 +71,43 @@ give it the same URL and it discovers the rest.
 
 | Tool | Purpose |
 | --- | --- |
-| `list_vehicles` | GPS positions of buses and trains in service: one by number, a route's, or all of them. |
+| `plan_trip` | Trips between two places by bus and train, with walking and transfers, adjusted by live delays. |
+| `get_arrivals` | Live predicted arrivals at a named stop, or at the station nearest a location. |
+| `get_schedule` | The published timetable at a stop for any date: departures, first and last trips. |
+| `get_route` | One route on a date: destinations, stops in order, hours, and how often it runs. |
+| `get_service_alerts` | Current and upcoming detours and disruptions, system-wide or for a route, stop, or place. |
 | `list_stops` | Stops and stations with the routes serving each, nearest first from a location. |
-| `get_arrivals` | Estimated arrival times at a named stop, or at the station nearest a location. |
+| `list_vehicles` | GPS positions of buses and trains in service: one by number, a route's, or all of them. |
 
-Ask Claude "what's the closest train station to me?" or "when's the next train at my
-stop?" and it passes your device's location to `list_stops` or `get_arrivals`. The
-server never sees a location it isn't handed, so this needs a client that shares the
-device's location with the model.
+Ask Claude "what's the closest train station to me?", "when's the next train at my
+stop?", or "how do I get to the airport from here?" and it passes your device's
+location to the tools. The server never sees a location it isn't handed, so this
+needs a client that shares the device's location with the model.
 
-### `list_vehicles`
-
-| Argument | Type | Notes |
-| --- | --- | --- |
-| `vehicle` | string | Vehicle number as shown on the bus/train, e.g. `2301`, `LRV307`. |
-| `route` | string | Route: `9`, `501`, `Blue Line`, `Mt. Holly Road`. |
-| `mode` | `bus` \| `train` | Optional filter. |
-| `limit` | integer | Max vehicles to return (default and cap: 250). |
-
-All arguments are optional; with none, every vehicle in service is returned. Each
-vehicle has position, heading, speed, occupancy, headsign, and the next scheduled
-stop. `matches` and `countsByMode` report the total even when the list is truncated.
-
-### `list_stops`
+### `plan_trip`
 
 | Argument | Type | Notes |
 | --- | --- | --- |
-| `latitude`, `longitude` | number | A location; results are then nearest first, with `metersAway`. |
-| `query` | string | Stop id, stop code, or part of a stop name. |
-| `route` | string | Only stops this route serves. |
-| `mode` | `bus` \| `train` | Only stops with that service, e.g. `train` for the nearest rail station. |
-| `limit` | integer | Max stations (default 10 with a location, 250 without; cap 250). |
+| `origin_stop` | string | Where to start: a stop id, code, or name. |
+| `origin_latitude`, `origin_longitude` | number | Or start from a location, walking to nearby stops. |
+| `destination_stop` | string | Where to go: a stop id, code, or name. |
+| `destination_latitude`, `destination_longitude` | number | Or finish at a location. |
+| `date` | `YYYY-MM-DD` | Service date in Charlotte (default today). |
+| `depart_at` | `HH:MM` | Leave no earlier than this. Default: now. |
+| `arrive_by` | `HH:MM` | Or arrive no later than this. |
+| `max_transfers` | integer | 0 to 3 (default 2). |
+| `max_walk_meters` | integer | Longest walk to the first stop or from the last, 100 to 2000 (default 800). |
 
-Each station lists its `stopIds`, coordinates, `modes`, and `routes` (id, number, long
-name, mode): for example `501 · Light Rail - Lynx Blue Line`, `510 · CityLYNX Gold
-Line`, or bus routes like `29`. Stops no scheduled trip calls at are left out, and
-nothing farther than 50 km from the location is returned.
+Returns up to three itineraries, each with walking and riding legs: the route, the
+vehicle's real destination, where to board and get off, times, the wait at each
+transfer, and stops travelled. Journeys with more transfers are offered only when they
+arrive sooner (or, for `arrive_by`, leave later). For trips starting within three hours
+of now, rides carry live delays and are marked `live`. `walkingIsAnOption` appears when
+the two places are within the walking limit of each other.
+
+Walking is an estimate: the straight-line distance stretched by 30%, at 4.5 km/h. The
+feed has no street map, so real walks can be longer. Transfers allow up to 400 m on foot
+and two minutes of slack.
 
 ### `get_arrivals`
 
@@ -122,8 +126,81 @@ response carries its `metersAway`.
 Returns minutes away, predicted and scheduled times, schedule deviation, the vehicle
 number, the platform (`stopId`), and that vehicle's live position. When a name query
 is ambiguous, the best match is used and the runners-up are listed under
-`otherStopsMatchingQuery`. Service alerts affecting the stop or its routes are
-attached when present.
+`otherStopsMatchingQuery`. Current service alerts affecting the stop or its routes are
+attached as `serviceAlerts`, in the same shape `get_service_alerts` returns. For times
+beyond the next hour or so, use `get_schedule`.
+
+### `get_schedule`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `stop` | string | Stop id, code, or name. |
+| `latitude`, `longitude` | number | Or the nearest stop serving the route or mode. |
+| `route` | string | Optional route filter. |
+| `mode` | `bus` \| `train` | Optional filter. |
+| `date` | `YYYY-MM-DD` | Service date (default today). |
+| `after`, `before` | `HH:MM` | Time window. `after` defaults to now today, or the start of service. |
+| `limit` | integer | Max departures (default 20, cap 100). |
+
+Scheduled departures with each trip's route and destination, plus `firstDeparture`
+and `lastDeparture` for the day. A service day runs past midnight, as GTFS does: the
+last trains of Tuesday leave at 1:31 am on Wednesday, and `25:30` in `after` or `before`
+means 1:30 am that night. Use `get_arrivals` for live predictions.
+
+### `get_route`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `route` | string | **Required.** `9`, `501`, `Blue Line`, `Airport`. |
+| `date` | `YYYY-MM-DD` | Service date (default today). |
+
+For each direction: the destination, the stops in order (following the pattern most
+trips use, with any others summarized), first and last departure, and the typical
+minutes between trips in the early morning, morning rush, midday, afternoon rush,
+evening, and late night. Also trips on each of the next seven days and the number of
+active alerts. A query matching several routes lists them instead.
+
+### `get_service_alerts`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `route` | string | Alerts naming the route or any stop it serves. |
+| `stop` | string | Alerts naming the station or any route serving it. |
+| `latitude`, `longitude` | number | Alerts affecting stops within 800 m. |
+
+Give at most one; with none, every alert. Ended alerts are left out. Each alert has its
+headline, description, effect and cause with CATS's detail text, whether it is
+`active` or `upcoming`, its periods (`untilFurtherNotice` for open-ended ones), and the
+routes and stops it names.
+
+### `list_stops`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `latitude`, `longitude` | number | A location; results are then nearest first, with `metersAway`. |
+| `query` | string | Stop id, stop code, or part of a stop name. |
+| `route` | string | Only stops this route serves. |
+| `mode` | `bus` \| `train` | Only stops with that service, e.g. `train` for the nearest rail station. |
+| `limit` | integer | Max stations (default 10 with a location, 250 without; cap 250). |
+
+Each station lists its `stopIds`, coordinates, `modes`, and `routes` (id, number, long
+name, mode): for example `501 · Light Rail - Lynx Blue Line`, `510 · CityLYNX Gold
+Line`, or bus routes like `29`. Stops no scheduled trip calls at are left out, and
+nothing farther than 50 km from the location is returned.
+
+### `list_vehicles`
+
+| Argument | Type | Notes |
+| --- | --- | --- |
+| `vehicle` | string | Vehicle number as shown on the bus/train, e.g. `2301`, `LRV307`. |
+| `route` | string | Route: `9`, `501`, `Blue Line`, `Mt. Holly Road`. |
+| `mode` | `bus` \| `train` | Optional filter. |
+| `limit` | integer | Max vehicles to return (default and cap: 250). |
+
+All arguments are optional; with none, every vehicle in service is returned. Each
+vehicle has position, heading, speed, occupancy (CATS currently reports none),
+headsign, and the next scheduled stop. `matches` and `countsByMode` report the total
+even when the list is truncated.
 
 ## Resources
 
@@ -139,7 +216,8 @@ The feeds behind the tools, for clients and models that want the data itself.
 
 Static tables come from the same cached download the tools use. Realtime resources
 are the decoded feed entities with their GTFS-Realtime field names, raw ids, and Unix
-timestamps, without the schedule joins the tools add. `stop_times.txt` is large
+timestamps, without the schedule joins the tools add. Each resource's `fetchedAt` is
+Eastern time, like the tools. `stop_times.txt` is large
 (about 12 MB in the live feed).
 
 ## Install
@@ -303,13 +381,16 @@ Realtime (GTFS-Realtime protobuf, refreshed every 20s):
 - `https://gtfsrealtime.ridetransit.org/GTFSRealTime/TripUpdate/TripUpdates.pb`
 - `https://gtfsrealtime.ridetransit.org/GTFSRealTime/Alert/Alerts.pb`
 
-Static schedule (cached 6h), used to turn feed identifiers into route names, stop
-names, and coordinates:
+Static schedule (cached 6h), which turns feed identifiers into route names, stop
+names, and coordinates, and is the timetable the schedule and planning tools read:
 
 - `https://gtfsrealtime.ridetransit.org/GTFSStatic/api/GTFSDownload/GTFS.zip`
 
-Only `routes.txt`, `stops.txt`, and `trips.txt` are read; `stop_times.txt` and
-`shapes.txt` are the bulk of the archive and are not needed.
+The server reads `agency.txt` (for the time zone), `routes.txt`, `stops.txt`,
+`trips.txt`, `stop_times.txt`, and `calendar.txt` and `calendar_dates.txt` where
+present. `stop_times.txt` is streamed and packed into arrays per trip, about 15 MB in
+memory for the full CATS feed. `shapes.txt` is not read. Every file in the archive is
+still available as a [resource](#resources).
 
 ## Feed quirks this server works around
 
@@ -325,20 +406,45 @@ Verified against live feed captures:
 - **TripUpdates cover ~83% of active vehicles**, so `nextStop` is omitted rather than
   guessed for the remainder.
 - **Route matching is exact-first**, so a query of `5` returns route 5, not 501 or 510.
+- **Most headsigns name only a direction.** 61 of 64 routes label trips just
+  "Inbound" or "Outbound", so the schedule and planning tools report each trip's last
+  stop as its `destination`.
+- **Occupancy is never reported.** Every vehicle's `occupancy_status` is
+  `NO_DATA_AVAILABLE`.
+- **The schedule looks only a few weeks ahead.** CATS publishes `calendar_dates.txt`
+  alone, covering about four weeks (8 September to 4 October 2026 in the feed checked).
+  Timetable answers report the range as `scheduleCovers` and refuse dates outside it.
+- **Open-ended alerts end in the year 3000.** An alert ending more than five years out
+  is reported as `untilFurtherNotice`.
+- **`parent_station` is too loose to group platforms.** CATS uses it for trip-planner
+  places spanning up to 900 m of unrelated stops, so stations are grouped by name and
+  distance instead.
 
 ## Behavior notes
 
 - Arrival predictions already in the past are filtered out; no negative ETAs.
 - Same-named stops within 200 m are one station: the two platforms of a Gold Line
-  stop, or bus stops facing each other across a street. `get_arrivals` reports
-  arrivals at all of them.
+  stop, or bus stops facing each other across a street. `list_stops`, `get_arrivals`,
+  `get_schedule`, and `plan_trip` all treat them as one place.
 - Feed responses are capped in size and time-bounded; one slow feed cannot hang a call.
 - Concurrent calls share a single in-flight fetch per feed, and one call giving up does
   not abort a fetch the others are awaiting.
 - If a refresh fails but cached data exists, the last good data is served rather than
   an error. `feedAgeSeconds` on every response shows how stale it is.
-- The alerts feed is supplementary: if it fails, `get_arrivals` still returns arrivals.
-- Times are ISO 8601 UTC; coordinates are WGS84 decimal degrees.
+- The alerts feed is supplementary for `get_arrivals` and `get_route`: if it fails,
+  they answer without alerts. `plan_trip` likewise falls back to the timetable, and
+  says so, when live predictions are unavailable.
+- Dates and clock times in arguments are Charlotte local time. A service day runs past
+  midnight, as GTFS does, and its clock times count from noon minus 12 hours on the
+  service date, so they stay right across daylight-saving changes.
+- Parsing the schedule, trip planning, and timetable scans run in a worker thread, so
+  a slow one does not stall other requests. The first call after the schedule is
+  downloaded waits a second or so for it to parse; a trip search then takes well
+  under a second.
+- Every time in a tool response is Eastern time (`America/New_York`), ISO 8601 with
+  the offset in effect on that date: `2026-09-08T17:59:48-04:00` during daylight saving
+  time, `2026-12-21T19:00:00-05:00` otherwise. The two 1:30 am's on the night clocks
+  fall back are told apart by their offsets. Coordinates are WGS84 decimal degrees.
 
 ## Configuration
 
@@ -398,9 +504,11 @@ One of the three allow-list settings is required; see above.
 | `feed_http.py` | Bounded, time-limited HTTP fetch |
 | `cache.py` | TTL cache with single-flight refresh |
 | `gtfs_csv.py` | GTFS-flavored CSV reading |
-| `static_gtfs.py` | Static schedule: routes, stops, trips, and the routes serving each stop |
+| `static_gtfs.py` | Static schedule: routes, stops, trips, their timetables, and the service calendar |
 | `realtime.py` | GTFS-Realtime protobuf decoding |
 | `transit.py` | Domain layer: joins realtime to schedule, resolves queries |
+| `timetable.py` | Domain layer for the published timetable: service days, departures, route patterns |
+| `planner.py` | Trip planning: a Connection Scan over the timetable, with live delays |
 | `tools.py` | The tools' behavior and JSON payloads |
 | `resources.py` | The GTFS feeds as MCP resources |
 | `server.py` | MCP tool and resource registration, and schemas |
@@ -425,7 +533,10 @@ with the [`Dockerfile`](Dockerfile), which deploy it to Google Cloud Run.
 ```
 
 Tests run against protobuf and GTFS fixtures captured from the live feeds, so they are
-deterministic and make no network calls. `tests/test_feed_http.py` is the exception: it
+deterministic and make no network calls. The GTFS fixture is a trimmed extract of the
+real archive: trips on route 29, the Blue Line, and the Gold Line, the stops they call
+at, and the full service calendar. The realtime capture is from a weekday evening, so
+a Blue-to-Gold transfer can be planned against it. `tests/test_feed_http.py` is the exception: it
 serves canned responses from a loopback socket so the byte cap and timeout are exercised
 for real.
 

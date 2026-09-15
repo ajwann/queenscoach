@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
@@ -16,7 +19,15 @@ from queenscoach.tools import Dependencies
 
 from .conftest import fixture_deps
 
-TOOL_NAMES = {"list_vehicles", "list_stops", "get_arrivals"}
+TOOL_NAMES = {
+    "list_vehicles",
+    "list_stops",
+    "get_arrivals",
+    "get_schedule",
+    "get_route",
+    "get_service_alerts",
+    "plan_trip",
+}
 
 
 async def _call(deps: Dependencies, name: str, arguments: dict[str, object]) -> CallToolResult:
@@ -36,12 +47,15 @@ async def test_every_tool_is_registered_read_only(deps: Dependencies) -> None:
         assert tool.annotations.open_world_hint is True
 
 
-async def test_no_tool_requires_an_argument_and_locations_are_range_checked(
+async def test_only_get_route_requires_an_argument_and_locations_are_range_checked(
     deps: Dependencies,
 ) -> None:
     tools = {tool.name: tool for tool in await create_server(deps).list_tools()}
     for tool in tools.values():
-        assert "required" not in tool.input_schema, tool.name
+        if tool.name == "get_route":
+            assert tool.input_schema["required"] == ["route"]
+        else:
+            assert "required" not in tool.input_schema, tool.name
     schema = tools["get_arrivals"].input_schema
     assert schema["properties"]["mode"]["anyOf"][0]["enum"] == ["bus", "train"]
     latitude = tools["list_stops"].input_schema["properties"]["latitude"]["anyOf"][0]
@@ -71,6 +85,12 @@ async def test_an_out_of_range_argument_is_rejected_before_the_tool_runs(
         await create_server(deps).call_tool("list_vehicles", {"mode": "helicopter"})
     with pytest.raises(ToolError):
         await create_server(deps).call_tool("list_stops", {"latitude": 91, "longitude": 0})
+    with pytest.raises(ToolError):
+        await create_server(deps).call_tool("get_schedule", {"stop": "00001", "date": "tomorrow"})
+    with pytest.raises(ToolError):
+        await create_server(deps).call_tool(
+            "plan_trip", {"origin_stop": "00090", "destination_stop": "00002", "max_transfers": 9}
+        )
 
 
 async def test_a_feed_failure_becomes_a_readable_tool_error() -> None:
@@ -82,7 +102,23 @@ async def test_a_feed_failure_becomes_a_readable_tool_error() -> None:
         await create_server(deps).call_tool("list_vehicles", {})
 
 
-async def test_tool_output_is_json_serializable() -> None:
+EASTERN = ZoneInfo("America/New_York")
+
+#: An ISO 8601 date-time, with whatever offset it carries.
+_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$")
+
+
+def _timestamps(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value] if _TIMESTAMP.match(value) else []
+    if isinstance(value, dict):
+        return [found for item in value.values() for found in _timestamps(item)]
+    if isinstance(value, list):
+        return [found for item in value for found in _timestamps(item)]
+    return []
+
+
+async def test_tool_output_is_json_serializable_with_every_time_in_eastern() -> None:
     deps = fixture_deps()
     calls: list[tuple[str, dict[str, object]]] = [
         ("list_vehicles", {"route": "501"}),
@@ -90,7 +126,21 @@ async def test_tool_output_is_json_serializable() -> None:
         ("list_stops", {"latitude": 35.2274, "longitude": -80.8381}),
         ("get_arrivals", {"stop": "00015"}),
         ("get_arrivals", {"latitude": 35.1071, "longitude": -80.8829, "mode": "train"}),
+        ("get_schedule", {"stop": "7th St Station", "date": "2026-09-08", "limit": 3}),
+        ("get_route", {"route": "Blue Line"}),
+        ("get_service_alerts", {}),
+        ("plan_trip", {"origin_stop": "00090", "destination_stop": "51016"}),
     ]
+    reporting_times: set[str] = set()
     for name, arguments in calls:
         result = await _call(deps, name, arguments)
         json.dumps(result.structured_content)
+        for stamp in _timestamps(result.structured_content):
+            reporting_times.add(name)
+            parsed = datetime.fromisoformat(stamp)
+            assert parsed.tzinfo is not None, f"{name} returned {stamp} without an offset"
+            # The offset must be Eastern's on that date: -04:00 in summer, -05:00 in winter.
+            eastern = parsed.astimezone(EASTERN)
+            assert parsed.utcoffset() == eastern.utcoffset(), f"{name} returned {stamp}"
+    # list_stops is the one tool with no times in its answer.
+    assert reporting_times == TOOL_NAMES - {"list_stops"}

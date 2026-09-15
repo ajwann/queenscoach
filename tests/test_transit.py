@@ -10,7 +10,6 @@ from queenscoach.transit import (
     find_routes,
     find_stops,
     group_into_stations,
-    iso_time,
     matches_vehicle_query,
     natural_key,
     normalize,
@@ -33,11 +32,6 @@ def test_natural_key_orders_numbers_numerically() -> None:
         "510",
     ]
     assert sorted(["Route 9", "Route 10"], key=natural_key) == ["Route 9", "Route 10"]
-
-
-def test_iso_time_renders_utc_with_milliseconds() -> None:
-    assert iso_time(0) == "1970-01-01T00:00:00.000Z"
-    assert iso_time(1_788_904_788) == "2026-09-08T21:59:48.000Z"
 
 
 def test_distance_between_a_point_and_itself_is_zero() -> None:

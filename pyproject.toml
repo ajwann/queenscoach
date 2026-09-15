@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "queenscoach"
-version = "2.0.0"
-description = "MCP server for Charlotte Area Transit System (CATS) realtime bus and light rail data"
+version = "2.1.0"
+description = "MCP server for Charlotte Area Transit System (CATS) buses and light rail: trip planning, live arrivals, timetables, and service alerts"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -19,6 +19,9 @@ dependencies = [
   "starlette>=0.48,<2",
   "uvicorn>=0.34,<1",
   "pyjwt[crypto]>=2.10,<3",
+  # The timetable's clock is in the agency's zone. zoneinfo reads the system's
+  # database, which slim containers and Windows may lack; this is its fallback.
+  "tzdata>=2025.2",
 ]
 
 [project.optional-dependencies]

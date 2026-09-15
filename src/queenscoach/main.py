@@ -49,7 +49,8 @@ def configure_logging() -> None:
 def build_parser() -> argparse.ArgumentParser:
     """The CLI. Every option also has an environment variable, for hosted runs."""
     parser = argparse.ArgumentParser(
-        prog=SERVER_NAME, description="MCP server for live CATS transit data."
+        prog=SERVER_NAME,
+        description="MCP server for CATS transit: trip planning, arrivals, timetables.",
     )
     parser.add_argument("--version", action="version", version=f"{SERVER_NAME} {SERVER_VERSION}")
     parser.add_argument(

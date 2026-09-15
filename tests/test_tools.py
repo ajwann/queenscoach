@@ -2,11 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from queenscoach.realtime import VehiclePosition
+from queenscoach.cache import Cached
+from queenscoach.realtime import ActivePeriod, ServiceAlert, TripUpdate, VehiclePosition
 from queenscoach.static_gtfs import Schedule
-from queenscoach.tools import Dependencies, get_arrivals, list_stops, list_vehicles
+from queenscoach.tools import (
+    Dependencies,
+    get_arrivals,
+    get_route,
+    get_schedule,
+    get_service_alerts,
+    list_stops,
+    list_vehicles,
+    plan_trip,
+)
 
-from .conftest import FailingAlertsFeeds, fixture_deps
+from .conftest import CAPTURE_TIME, FailingAlertsFeeds, FixtureFeeds, fixture_deps
 
 CHARLOTTE_LAT = (34.9, 35.7)
 CHARLOTTE_LON = (-81.2, -80.4)
@@ -291,3 +301,321 @@ async def test_list_stops_explains_an_empty_result(deps: Dependencies) -> None:
     assert "No route matched" in unknown["error"]
     partial = await list_stops(deps, longitude=-80.8)
     assert "together" in partial["error"]
+
+
+# -- get_schedule ------------------------------------------------------------------------
+
+
+async def test_get_schedule_lists_departures_from_now_with_first_and_last_of_the_day(
+    deps: Dependencies,
+) -> None:
+    result = await get_schedule(deps, stop="7th St Station", limit=4)
+    assert result["serviceDate"] == "2026-09-08"
+    assert result["weekday"] == "Tuesday"
+    assert result["firstDeparture"] == "2026-09-08T04:59:00-04:00"
+    assert result["lastDeparture"] == "2026-09-09T01:31:00-04:00", (
+        "the last train is after midnight"
+    )
+    departures = result["departures"]
+    assert len(departures) == 4
+    assert departures[0]["departsAt"] >= "2026-09-08T17:59"
+    assert {departure["destination"] for departure in departures} <= {
+        "I-485 Station",
+        "UNC Charlotte Station",
+    }
+    assert result["scheduleCovers"] == {"from": "2026-09-08", "through": "2026-10-04"}
+
+
+async def test_get_schedule_honours_a_time_window_and_route_filter(deps: Dependencies) -> None:
+    result = await get_schedule(
+        deps, stop="00001", date="2026-09-12", after="23:00", before="25:00", route="501"
+    )
+    assert result["weekday"] == "Saturday"
+    times = [departure["departsAt"] for departure in result["departures"]]
+    assert times
+    assert times[0] >= "2026-09-12T23:00"
+    assert times[-1] <= "2026-09-13T01:00"
+    assert result["totalInWindow"] == len(times)
+
+
+async def test_get_schedule_includes_the_previous_nights_trips_after_midnight(
+    deps: Dependencies,
+) -> None:
+    result = await get_schedule(
+        deps, stop="00001", date="2026-09-09", after="00:00", before="02:00"
+    )
+    assert result["departures"], "Tuesday's last trains leave after midnight on Wednesday"
+    assert all(d["departsAt"].startswith("2026-09-09T0") for d in result["departures"])
+
+
+async def test_get_schedule_finds_the_nearest_stop_a_mode_serves(deps: Dependencies) -> None:
+    latitude, longitude = SEVENTH_ST_STATION
+    result = await get_schedule(deps, latitude=latitude, longitude=longitude, mode="train", limit=1)
+    assert result["stop"]["name"] == "7th St Station"
+    assert result["stop"]["metersAway"] < 50
+
+
+async def test_get_schedule_says_when_a_date_is_beyond_the_published_schedule(
+    deps: Dependencies,
+) -> None:
+    result = await get_schedule(deps, stop="00001", date="2026-12-24")
+    assert "covers 2026-09-08 through 2026-10-04" in result["error"]
+    assert "departures" not in result
+    bad = await get_schedule(deps, stop="00001", after="half past six")
+    assert "HH:MM" in bad["error"]
+    neither = await get_schedule(deps)
+    assert "Provide" in neither["error"]
+
+
+async def test_get_schedule_explains_a_stop_with_no_service_that_day(deps: Dependencies) -> None:
+    # Route 29's fixture trips run on weekdays only.
+    result = await get_schedule(deps, stop="06530", date="2026-09-13")
+    assert result["departuresThatDay"] == 0
+    assert "No scheduled departures" in result["message"]
+
+
+# -- get_route ---------------------------------------------------------------------------
+
+
+async def test_get_route_describes_each_direction_with_stops_in_order(deps: Dependencies) -> None:
+    result = await get_route(deps, route="Blue Line")
+    assert result["route"]["routeId"] == "501"
+    north, south = result["directions"]
+    assert north["destination"] == "UNC Charlotte Station"
+    assert south["destination"] == "I-485 Station"
+    assert north["stops"][0]["name"] == "I-485 Station"
+    assert north["stops"][-1]["name"] == "UNC Charlotte Station"
+    assert [stop["stopId"] for stop in south["stops"]][:2] == ["00090", "00089"]
+    periods = {frequency["period"]: frequency for frequency in north["frequency"]}
+    assert periods["morning rush"]["typicalMinutesBetween"] == 15
+    assert north["firstDeparture"].startswith("2026-09-08T04:")
+
+
+async def test_get_route_reports_the_coming_week_and_frequency_on_another_day(
+    deps: Dependencies,
+) -> None:
+    result = await get_route(deps, route="29", date="2026-09-12")
+    assert result["tripCount"] == 0
+    assert "no scheduled trips" in result["message"]
+    week = {day["weekday"]: day["trips"] for day in result["serviceNextSevenDays"]}
+    assert week["Saturday"] == 0
+    assert week["Monday"] > 0
+
+
+async def test_get_route_asks_which_route_when_a_query_matches_several(
+    deps: Dependencies,
+) -> None:
+    result = await get_route(deps, route="Line")
+    assert "routes matched" in result["error"]
+    assert {route["routeId"] for route in result["matchingRoutes"]} == {"501", "510"}
+
+
+async def test_get_route_counts_active_alerts_on_the_route(schedule: Schedule) -> None:
+    alert = _alert(route_ids=("501",), stop_ids=())
+    result = await get_route(fixture_deps(FixtureFeeds(alerts=[alert])), route="501")
+    assert result["activeAlerts"] == 1
+    quiet = await get_route(fixture_deps(FixtureFeeds(alerts=[])), route="501")
+    assert "activeAlerts" in quiet
+    assert quiet["activeAlerts"] == 0
+
+
+# -- get_service_alerts ------------------------------------------------------------------
+
+
+def _alert(
+    *,
+    route_ids: tuple[str, ...],
+    stop_ids: tuple[str, ...],
+    start: int | None = 1_700_000_000,
+    end: int | None = None,
+    header: str = "Road Closed will create Detour",
+) -> ServiceAlert:
+    return ServiceAlert(
+        header_text=header,
+        description_text="Buses will detour.",
+        cause="CONSTRUCTION",
+        effect="DETOUR",
+        severity_level="WARNING",
+        informed_route_ids=route_ids,
+        informed_stop_ids=stop_ids,
+        active_periods=(ActivePeriod(start=start, end=end),),
+        effect_detail="Detour",
+    )
+
+
+async def test_get_service_alerts_lists_every_current_alert_system_wide(
+    deps: Dependencies,
+) -> None:
+    result = await get_service_alerts(deps)
+    assert result["scope"] == "the CATS system"
+    assert result["alertCount"] == 4
+    detour = result["alerts"][0]
+    assert detour["status"] == "active"
+    (period,) = detour["activePeriods"]
+    assert period["untilFurtherNotice"] is True
+    assert "end" not in period
+    assert detour["routes"] == [{"routeId": "35"}], "a route missing from the schedule keeps its id"
+
+
+async def test_get_service_alerts_narrows_to_a_route_or_its_stops(schedule: Schedule) -> None:
+    on_route = _alert(route_ids=("501",), stop_ids=(), header="Blue Line single-tracking")
+    at_a_platform = _alert(route_ids=(), stop_ids=("00015",), header="I-485 platform closed")
+    elsewhere = _alert(route_ids=("29",), stop_ids=("06530",), header="Route 29 detour")
+    deps = fixture_deps(FixtureFeeds(alerts=[on_route, at_a_platform, elsewhere]))
+
+    by_route = await get_service_alerts(deps, route="Blue Line")
+    assert [alert["headerText"] for alert in by_route["alerts"]] == [
+        "Blue Line single-tracking",
+        "I-485 platform closed",
+    ]
+    assert by_route["alerts"][0]["routes"][0]["longName"] == "Light Rail - Lynx Blue Line"
+
+    by_stop = await get_service_alerts(deps, stop="06530")
+    assert [alert["headerText"] for alert in by_stop["alerts"]] == ["Route 29 detour"]
+    assert by_stop["alerts"][0]["stops"] == [
+        {"stopId": "06530", "name": "Cove Creek Dr & Barrington Dr"}
+    ]
+
+    latitude, longitude = I_485_STATION
+    nearby = await get_service_alerts(deps, latitude=latitude, longitude=longitude)
+    assert {alert["headerText"] for alert in nearby["alerts"]} == {
+        "Blue Line single-tracking",
+        "I-485 platform closed",
+    }
+
+
+async def test_get_service_alerts_leaves_out_ended_alerts_and_flags_upcoming_ones() -> None:
+    now = int(CAPTURE_TIME)
+    ended = _alert(route_ids=("501",), stop_ids=(), start=now - 7200, end=now - 60, header="Over")
+    upcoming = _alert(
+        route_ids=("501",), stop_ids=(), start=now + 86_400, end=now + 90_000, header="Soon"
+    )
+    deps = fixture_deps(FixtureFeeds(alerts=[ended, upcoming]))
+    result = await get_service_alerts(deps, route="501")
+    (only,) = result["alerts"]
+    assert only["headerText"] == "Soon"
+    assert only["status"] == "upcoming"
+    assert only["activePeriods"][0]["end"] == "2026-09-09T18:59:48-04:00"
+
+
+async def test_get_service_alerts_rejects_more_than_one_selector_and_far_locations(
+    deps: Dependencies,
+) -> None:
+    both = await get_service_alerts(deps, route="501", stop="00015")
+    assert "at most one" in both["error"]
+    far = await get_service_alerts(deps, latitude=40.7128, longitude=-74.0060)
+    assert "No CATS stop is within 800 m" in far["error"]
+    quiet = await get_service_alerts(fixture_deps(FixtureFeeds(alerts=[])), route="29")
+    assert quiet["alertCount"] == 0
+    assert "No current or upcoming" in quiet["message"]
+
+
+# -- plan_trip ---------------------------------------------------------------------------
+
+#: A few hundred metres from UNC Charlotte Station.
+NEAR_UNC_CHARLOTTE = (35.3082, -80.7337)
+
+
+async def test_plan_trip_from_a_location_walks_rides_and_transfers(deps: Dependencies) -> None:
+    latitude, longitude = NEAR_UNC_CHARLOTTE
+    result = await plan_trip(
+        deps,
+        origin_latitude=latitude,
+        origin_longitude=longitude,
+        destination_stop="French St CityLYNX",
+    )
+    first = result["itineraries"][0]
+    kinds = [leg["type"] for leg in first["legs"]]
+    assert kinds == ["walk", "ride", "walk", "ride"]
+    walk, blue, change, gold = first["legs"]
+    assert walk["from"] == {"name": "Your location"}
+    assert walk["to"]["name"] == "UNC Charlotte Station"
+    assert blue["route"]["routeId"] == "501"
+    assert blue["destination"] == "I-485 Station"
+    assert (change["from"]["name"], change["to"]["name"]) == ("CTC Station", "CTC/Arena CityLYNX")
+    assert gold["route"]["routeId"] == "510"
+    assert "transferWaitMinutes" not in blue
+    assert gold["transferWaitMinutes"] >= 2
+    assert first["transfers"] == 1
+    assert first["departAt"] >= result["searchedFor"]["departAt"]
+    assert any("straight-line" in note for note in result["notes"])
+
+
+async def test_plan_trip_arrive_by_ends_in_time_on_a_given_date(deps: Dependencies) -> None:
+    result = await plan_trip(
+        deps,
+        origin_stop="UNC Charlotte Station",
+        destination_stop="CTC Station",
+        date="2026-09-12",
+        arrive_by="09:00",
+    )
+    assert result["searchedFor"] == {"arriveBy": "2026-09-12T09:00:00-04:00"}
+    arrivals = [itinerary["arriveAt"] for itinerary in result["itineraries"]]
+    assert arrivals
+    assert all(arrival <= "2026-09-12T09:00:00-04:00" for arrival in arrivals)
+    assert all(itinerary["transfers"] == 0 for itinerary in result["itineraries"])
+    assert not any("live" in note for note in result["notes"]), "Saturday is not now"
+
+
+async def test_plan_trip_offers_walking_when_the_places_are_close(deps: Dependencies) -> None:
+    ctc, arena = (35.225336, -80.840975), (35.224767, -80.840221)
+    result = await plan_trip(
+        deps,
+        origin_latitude=ctc[0],
+        origin_longitude=ctc[1],
+        destination_latitude=arena[0],
+        destination_longitude=arena[1],
+    )
+    assert result["walkingIsAnOption"] == {"meters": 122, "minutes": 2}
+
+
+async def test_plan_trip_explains_what_is_missing_or_impossible(deps: Dependencies) -> None:
+    both_times = await plan_trip(
+        deps, origin_stop="00090", destination_stop="00002", depart_at="08:00", arrive_by="09:00"
+    )
+    assert "not both" in both_times["error"]
+
+    no_destination = await plan_trip(deps, origin_stop="00090")
+    assert "destination" in no_destination["error"]
+
+    stranded = await plan_trip(
+        deps, origin_latitude=40.7128, origin_longitude=-74.0060, destination_stop="00002"
+    )
+    assert "within a 800 m walk of the starting point" in stranded["error"]
+
+    later = await plan_trip(deps, origin_stop="00090", destination_stop="00002", date="2026-09-20")
+    assert "depart_at" in later["error"]
+
+    same = await plan_trip(deps, origin_stop="CTC/Arena CityLYNX", destination_stop="51001")
+    assert "same stop" in same["error"]
+
+    beyond = await plan_trip(
+        deps, origin_stop="00090", destination_stop="00002", date="2027-01-05", depart_at="08:00"
+    )
+    assert "covers" in beyond["error"]
+
+
+async def test_plan_trip_reports_when_no_trip_fits(deps: Dependencies) -> None:
+    result = await plan_trip(deps, origin_stop="00090", destination_stop="51016", max_transfers=0)
+    assert result["itineraries"] == []
+    assert "No trip with at most 0 transfers" in result["message"]
+
+
+async def test_plan_trip_falls_back_to_the_timetable_when_live_predictions_fail() -> None:
+    class NoTripUpdates(FixtureFeeds):
+        async def trip_updates(self) -> Cached[list[TripUpdate]]:
+            raise RuntimeError("trip updates down")
+
+    result = await plan_trip(
+        fixture_deps(NoTripUpdates()), origin_stop="00090", destination_stop="00002"
+    )
+    assert result["itineraries"]
+    assert any("unavailable" in note for note in result["notes"])
+
+
+async def test_get_arrivals_alerts_now_name_their_routes_and_period() -> None:
+    alert = _alert(route_ids=("501",), stop_ids=("00015",))
+    result = await get_arrivals(fixture_deps(FixtureFeeds(alerts=[alert])), stop="00015")
+    (attached,) = result["serviceAlerts"]
+    assert attached["routes"][0]["routeId"] == "501"
+    assert attached["activePeriods"][0]["untilFurtherNotice"] is True

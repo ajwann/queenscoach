@@ -69,6 +69,13 @@ class TripUpdate:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivePeriod:
+    #: Unix seconds; ``None`` means from the start of time, or until further notice.
+    start: int | None
+    end: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class ServiceAlert:
     header_text: str | None
     description_text: str | None
@@ -77,6 +84,23 @@ class ServiceAlert:
     severity_level: str | None
     informed_route_ids: tuple[str, ...]
     informed_stop_ids: tuple[str, ...]
+    #: When the alert applies. Empty means always, while it is in the feed.
+    active_periods: tuple[ActivePeriod, ...] = ()
+    cause_detail: str | None = None
+    effect_detail: str | None = None
+    url: str | None = None
+
+    def is_active(self, now: float) -> bool:
+        return not self.active_periods or any(
+            (period.start is None or period.start <= now)
+            and (period.end is None or now < period.end)
+            for period in self.active_periods
+        )
+
+    def has_ended(self, now: float) -> bool:
+        return bool(self.active_periods) and all(
+            period.end is not None and period.end <= now for period in self.active_periods
+        )
 
 
 def _optional_str(message: Any, name: str) -> str | None:
@@ -241,6 +265,21 @@ def decode_alerts(data: bytes) -> list[ServiceAlert]:
                 severity_level=_enum_name(gtfs.Alert.SeverityLevel, alert, "severity_level"),
                 informed_route_ids=tuple(route_ids),
                 informed_stop_ids=tuple(stop_ids),
+                active_periods=tuple(
+                    ActivePeriod(
+                        # A zero or absent bound is open-ended in GTFS-Realtime.
+                        start=_optional_int(period, "start") or None,
+                        end=_optional_int(period, "end") or None,
+                    )
+                    for period in alert.active_period
+                ),
+                cause_detail=_translated_text(alert.cause_detail)
+                if alert.HasField("cause_detail")
+                else None,
+                effect_detail=_translated_text(alert.effect_detail)
+                if alert.HasField("effect_detail")
+                else None,
+                url=_translated_text(alert.url) if alert.HasField("url") else None,
             )
         )
     return alerts

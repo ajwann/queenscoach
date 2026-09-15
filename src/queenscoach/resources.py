@@ -12,11 +12,15 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from .cache import Cached
-from .static_gtfs import list_archive, read_archive_text
+from .static_gtfs import DEFAULT_TIMEZONE, list_archive, read_archive_text
+from .timetable import iso_local
 from .tools import Dependencies
-from .transit import iso_time
+
+#: Where CATS runs; resources report their fetch times in Eastern time, like the tools.
+_ZONE = ZoneInfo(DEFAULT_TIMEZONE)
 
 STATIC_INDEX_URI = "gtfs://static"
 STATIC_TABLE_URI_TEMPLATE = "gtfs://static/{file}"
@@ -46,7 +50,7 @@ async def static_index(deps: Dependencies) -> str:
     return json.dumps(
         {
             "source": deps.static_gtfs_url or None,
-            "fetchedAt": iso_time(cached.fetched_at),
+            "fetchedAt": iso_local(cached.fetched_at, _ZONE),
             "files": [
                 {"name": entry.name, "bytes": entry.size, "uri": static_table_uri(entry.name)}
                 for entry in list_archive(cached.value)
@@ -85,7 +89,7 @@ async def realtime_feed(deps: Dependencies, feed: RealtimeFeed) -> str:
     return json.dumps(
         {
             "feed": feed,
-            "fetchedAt": iso_time(cached.fetched_at),
+            "fetchedAt": iso_local(cached.fetched_at, _ZONE),
             "count": len(entities),
             "entities": entities,
         }
