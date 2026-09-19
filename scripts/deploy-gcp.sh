@@ -29,6 +29,8 @@
 #   QUEENSCOACH_GCP_BILLING_ACCOUNT  default: the only open billing account
 #   QUEENSCOACH_GCP_MAX_INSTANCES    default 1
 #   QUEENSCOACH_BUDGET_USD           monthly budget, default 5
+#   QUEENSCOACH_SHARED_BUDGET        true: another server in this project owns the budget
+#                                    and kill switch, so create neither here
 #   QUEENSCOACH_SPEND_CAP            true: unlink billing once spend nears the budget
 #   QUEENSCOACH_SPEND_CAP_AT         fraction of the budget that trips it, default 0.8
 #   QUEENSCOACH_SPEND_CAP_DRY_RUN    true: the kill switch only logs, for testing
@@ -50,6 +52,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 readonly SCRIPT_DIR REPO_ROOT
+
+# The spend cap function's source. This repo no longer carries a copy: the cap
+# is project-wide and lives in the mcp-servers-shared-cap repo, checked out
+# beside this one. Only the per-server cap below reads it, which
+# QUEENSCOACH_SHARED_BUDGET=true skips.
+SPEND_CAP_SOURCE="${SPEND_CAP_SOURCE:-$REPO_ROOT/../mcp-servers-shared-cap/function}"
+readonly SPEND_CAP_SOURCE
 
 readonly LABEL_KEY=app
 readonly LABEL_VALUE=queenscoach
@@ -418,11 +427,15 @@ if [[ -z $BILLING ]]; then
 fi
 info "billing account $BILLING"
 
+SHARED_BUDGET=false
+is_true "${QUEENSCOACH_SHARED_BUDGET:-}" && SHARED_BUDGET=true
 SPEND_CAP=false
 is_true "${QUEENSCOACH_SPEND_CAP:-}" && SPEND_CAP=true
 SPEND_CAP_DRY_RUN=false
 is_true "${QUEENSCOACH_SPEND_CAP_DRY_RUN:-}" && SPEND_CAP_DRY_RUN=true
-if [[ $SPEND_CAP == true ]]; then
+if [[ $SHARED_BUDGET == true ]]; then
+  info "budget and spend cap are shared with the other servers in this project"
+elif [[ $SPEND_CAP == true ]]; then
   info "budget \$$BUDGET_USD a month; billing is unlinked at ${SPEND_CAP_AT} of it"
 else
   info "budget \$$BUDGET_USD a month (alerts only; QUEENSCOACH_SPEND_CAP=true makes it a cap)"
@@ -678,7 +691,14 @@ TOPIC_ID="$SERVICE-budget"
 TOPIC="projects/$PROJECT/topics/$TOPIC_ID"
 FUNCTION="$SERVICE-spend-cap"
 
-if [[ $SPEND_CAP == true ]]; then
+if [[ $SHARED_BUDGET == true ]]; then
+  # Another deployment in this project owns the budget and the kill switch, and
+  # both are project-wide: the budget measures every server's spend together and
+  # the function unlinks the whole project's billing. Creating a second pair here
+  # would duplicate the alerts and measure exactly the same money twice.
+  info "this project's cap is shared; the mcp-servers-shared-cap repo owns it"
+  note "no budget or spend cap is created for queenscoach"
+elif [[ $SPEND_CAP == true ]]; then
   if ! gp pubsub topics describe "$TOPIC_ID" >/dev/null 2>&1; then
     gp pubsub topics create "$TOPIC_ID" >/dev/null
   fi
@@ -695,9 +715,13 @@ if [[ $SPEND_CAP == true ]]; then
     --member="serviceAccount:service-$PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com" \
     --role=roles/iam.serviceAccountTokenCreator --condition=None >/dev/null 2>&1 || true
 
+  [[ -d $SPEND_CAP_SOURCE ]] || die \
+    "no spend cap function source at $SPEND_CAP_SOURCE. Check out the \
+mcp-servers-shared-cap repo beside this one, set SPEND_CAP_SOURCE, or use the \
+shared cap with QUEENSCOACH_SHARED_BUDGET=true."
   info "deploying the $FUNCTION function (a few minutes)"
   retry gp functions deploy "$FUNCTION" --gen2 --region="$REGION" --runtime=python312 \
-    --source="$REPO_ROOT/deploy/gcp-spend-cap" --entry-point=stop_billing \
+    --source="$SPEND_CAP_SOURCE" --entry-point=stop_billing \
     --trigger-topic="$TOPIC_ID" \
     --run-service-account="$SPEND_SA" --trigger-service-account="$SPEND_SA" \
     --build-service-account="projects/$PROJECT/serviceAccounts/$BUILD_SA" \
@@ -712,24 +736,26 @@ fi
 # flags are the unambiguously documented ones (fractions, 0.5 = 50%), and a
 # fresh budget also stops feeding the spend cap's topic once the cap is off.
 # Only this script's budget is touched, matched by its display name.
-for budget_id in $(gcloud billing budgets list --billing-account="$BILLING" \
-    --billing-project="$PROJECT" --filter="displayName=\"$BUDGET_NAME\"" \
-    --format='value(name.basename())'); do
-  gcloud billing budgets delete "$budget_id" --billing-account="$BILLING" \
-    --billing-project="$PROJECT" --quiet >/dev/null
-done
+if [[ $SHARED_BUDGET == false ]]; then
+  for budget_id in $(gcloud billing budgets list --billing-account="$BILLING" \
+      --billing-project="$PROJECT" --filter="displayName=\"$BUDGET_NAME\"" \
+      --format='value(name.basename())'); do
+    gcloud billing budgets delete "$budget_id" --billing-account="$BILLING" \
+      --billing-project="$PROJECT" --quiet >/dev/null
+  done
 
-BUDGET_ARGS=(
-  --billing-account="$BILLING" --billing-project="$PROJECT" --display-name="$BUDGET_NAME"
-  --budget-amount="${BUDGET_USD}USD" --calendar-period=month
-  --filter-projects="projects/$PROJECT_NUMBER"
-  --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0
-)
-[[ $SPEND_CAP == true ]] && BUDGET_ARGS+=(--notifications-rule-pubsub-topic="$TOPIC")
-gcloud billing budgets create "${BUDGET_ARGS[@]}" --quiet >/dev/null
-info "\$$BUDGET_USD monthly budget in place; alerts go to the billing account's admins"
+  BUDGET_ARGS=(
+    --billing-account="$BILLING" --billing-project="$PROJECT" --display-name="$BUDGET_NAME"
+    --budget-amount="${BUDGET_USD}USD" --calendar-period=month
+    --filter-projects="projects/$PROJECT_NUMBER"
+    --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0
+  )
+  [[ $SPEND_CAP == true ]] && BUDGET_ARGS+=(--notifications-rule-pubsub-topic="$TOPIC")
+  gcloud billing budgets create "${BUDGET_ARGS[@]}" --quiet >/dev/null
+  info "\$$BUDGET_USD monthly budget in place; alerts go to the billing account's admins"
+fi
 
-if [[ $SPEND_CAP == false ]] && gp functions describe "$FUNCTION" --region="$REGION" >/dev/null 2>&1; then
+if [[ $SHARED_BUDGET == false && $SPEND_CAP == false ]] && gp functions describe "$FUNCTION" --region="$REGION" >/dev/null 2>&1; then
   warn "the spend cap is off; the $FUNCTION function no longer receives budget updates"
   note "remove it with: gcloud functions delete $FUNCTION --region $REGION --project $PROJECT"
 fi

@@ -44,7 +44,8 @@ and passing `--non-interactive` makes it run unattended.
 | `QUEENSCOACH_GCP_BILLING_ACCOUNT` | the only open billing account | Asked for when there are several. |
 | `QUEENSCOACH_GCP_MAX_INSTANCES` | `1` | Caps worst-case compute cost. |
 | `QUEENSCOACH_BUDGET_USD` | `5` | Monthly budget. Alerts go to billing admins at 50%, 90%, and 100%. |
-| `QUEENSCOACH_SPEND_CAP` | `false` | `true` turns the budget into a hard cap; see [the spend cap](#the-spend-cap). |
+| `QUEENSCOACH_SHARED_BUDGET` | `false` | `true` (what this deployment uses) means another script owns the budget and kill switch, so this one creates neither; see [the shared spend cap](#the-shared-spend-cap). |
+| `QUEENSCOACH_SPEND_CAP` | `false` | `true` turns its own budget into a hard cap. Ignored if `SHARED_BUDGET` is set. |
 | `QUEENSCOACH_SPEND_CAP_AT` | `0.8` | Fraction of the budget at which the cap fires. |
 | `QUEENSCOACH_GOOGLE_CLIENT_ID` | | From the OAuth client described next. |
 | `QUEENSCOACH_GOOGLE_CLIENT_SECRET` | | Kept in Secret Manager, never in the service's environment. Asked for once; later runs reuse it unless it is set or `--reset-secret` is passed. |
@@ -209,14 +210,37 @@ it uses. The service scales to zero between uses, and the first call after an
 idle spell waits a few seconds while an instance starts, downloads the static
 schedule, and parses its timetable.
 
-### The spend cap
+### The shared spend cap
+
+This deployment no longer owns a budget or a kill switch. QueensCoach shares its
+project with QueensEstate, and a budget measures the whole project's spend while
+unlinking billing takes the whole project down — so two caps would measure the
+same money twice. There is one, owned by neither server:
+
+| Resource | Name |
+| --- | --- |
+| Budget | `Adam Wanningers MCP Servers shared cap` |
+| Pub/Sub topic | `mcp-servers-shared-cap` |
+| Cloud Run function | `mcp-servers-shared-cap` |
+| Service account | `mcp-shared-spendcap` |
+
+It lives in its own repository, **[mcp-servers-shared-cap](https://github.com/ajwann/mcp-servers-shared-cap)**,
+checked out beside this one (`../mcp-servers-shared-cap`, run `./shared-spend-cap.sh`
+there), and fires when the two servers together reach **$5 in a month**
+(a $5 budget at a `SPEND_CAP_AT` of `1.0`). When it fires, **both servers stop.**
+
+`QUEENSCOACH_SHARED_BUDGET=true` is what keeps this deploy from creating a second
+budget and kill switch of its own. The section below describes the per-server cap
+this script can still build, for a project where QueensCoach runs alone.
+
+### The spend cap (per-server, unused here)
 
 **Google Cloud has no hard spending limit.** A budget only sends email. With
 `QUEENSCOACH_SPEND_CAP=true`, the script adds Google's documented substitute:
 
 1. The budget publishes its cost updates to a Pub/Sub topic, several times a
    day.
-2. A small Cloud Run function (`deploy/gcp-spend-cap/`) reads each update.
+2. A small Cloud Run function (`function/` in the cap repo) reads each update.
 3. When spend reaches `QUEENSCOACH_SPEND_CAP_AT` × the budget, it **unlinks billing
    from this project**.
 
@@ -319,8 +343,8 @@ the project ID can never be reused.
 # The server
 gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="queenscoach"' \
   --project <project> --limit 50
-# The spend cap, which runs on Cloud Run too
-gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="queenscoach-spend-cap"' \
+# The shared spend cap, which runs on Cloud Run too
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="mcp-servers-shared-cap"' \
   --project <project> --limit 50
 ```
 
