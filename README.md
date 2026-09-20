@@ -1,6 +1,6 @@
 <!-- mcp-name: io.github.ajwann/queenscoach -->
 
-# QueensCoach ♔
+# QueensCoach ♔♘
 
 [![CI](https://github.com/ajwann/queenscoach/actions/workflows/ci.yml/badge.svg)](https://github.com/ajwann/queenscoach/actions/workflows/ci.yml)
 
