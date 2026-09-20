@@ -3,7 +3,7 @@
   "name": "io.github.ajwann/queenscoach",
   "title": "Charlotte Area Transit (CATS)",
   "description": "CATS bus and light rail trip planning, live arrivals, timetables, routes, and service alerts",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "websiteUrl": "https://github.com/ajwann/queenscoach",
   "repository": {
     "url": "https://github.com/ajwann/queenscoach",
@@ -13,7 +13,7 @@
     {
       "registryType": "pypi",
       "identifier": "queenscoach",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

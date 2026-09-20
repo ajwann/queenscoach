@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "queenscoach"
-version = "2.1.0"
+version = "2.1.1"
 description = "MCP server for Charlotte Area Transit System (CATS) buses and light rail: trip planning, live arrivals, timetables, and service alerts"
 readme = "README.md"
 license = "MIT"
